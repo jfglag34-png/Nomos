@@ -31,6 +31,17 @@ Building from source needs Go 1.26 or newer. That floor is the `go` directive in
 `go.mod`, and the `go-floor` CI job builds on exactly it, so the documented
 minimum is always the tested one.
 
+There are 99 plugins in the repository and in the registry: 5 `official` and 94
+`community`. **About the word "community":** all 99 plugins are currently written
+by the repository owner and live in that same repository — all 99 registry
+entries carry the same `source`, `https://github.com/wykserdex/wedra`, with no
+outside sources and no third-party authors. "Community" means shipped outside the
+core, that is, everything not in the maintained `plugins/official/` set — not
+"written by someone else". The `author` field in the manifests is still a
+placeholder (`community`, `community · wedra showcase (OSINT)`, `external
+author #4 …`) rather than a person's name; the `official` manifests do not have
+that field at all.
+
 The primary CLI supports pipeline validation and execution, plugin registry
 operations, resume, the local GUI, and an MCP stdio adapter. Plugin manifests
 declare their own component version and protocol compatibility separately.
@@ -151,8 +162,8 @@ internal/registry/    registry and install pins
 internal/journal/     append-only run journal
 internal/gate/        human gate
 internal/runctx/      shared context
-plugins/official/     maintained plugins
-plugins/community/    community plugins
+plugins/official/     maintained core plugins
+plugins/community/    everything outside that maintained core
 examples/             canonical examples and presets
 conformance/fixtures/ public conformance corpus
 var/runs/             runtime output, ignored by git
@@ -175,7 +186,7 @@ and are not to be reorganized without a public proposal and migration plan.
 | ![Settings: standard density](docs/screenshots/prefs-standard.png) | ![Settings: compact density](docs/screenshots/prefs-compact.png) |
 | **Settings, standard** — density, accent, node roles, rail width | **Settings, compact** — the same screen at a smaller type size and tighter padding |
 
-## Community and safety
+## Maintainers and safety
 
 WEDRA is currently maintained by one primary maintainer. The project is
 transparent about that risk and uses public proposals, CI gates, immutable

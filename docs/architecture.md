@@ -42,7 +42,7 @@ internal/
   core/               # transitional compatibility layer
   common/             # small shared helpers
 plugins/official/     # maintained core plugins
-plugins/community/    # community plugins
+plugins/community/    # everything outside the maintained core
 examples/             # canonical examples and registry presets
 conformance/fixtures/ # public conformance corpus
 protocol/             # VERSION (0.2), changelog, v0.2/

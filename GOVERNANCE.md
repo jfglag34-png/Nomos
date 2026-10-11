@@ -28,15 +28,18 @@ A release is publishable only when:
 The release checklist is intentionally small enough for a volunteer maintainer
 to repeat without private knowledge.
 
-## Community plugins
+## Plugins outside the core
 
-Community plugins are reviewed contributions, not an endorsement or a promise
-of maintenance by the core team. Admission requires:
+There are no third-party plugins today. Every plugin in `registry.yaml` is
+written by the repository owner, and every entry's `source` is this repository.
+Admission is currently the owner's decision, not an independent review, and the
+`author` field in the manifests is a placeholder rather than a named person.
+
+Admission requires:
 
 - a truthful manifest and permissions declaration;
 - conformance tests and a reviewable description;
-- no embedded credentials or undisclosed network access;
-- a named author and a path for reporting defects.
+- no embedded credentials or undisclosed network access.
 
 The registry is the publication boundary. A plugin outside `registry.yaml` is
 an in-tree experiment, not a supported marketplace entry.

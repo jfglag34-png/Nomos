@@ -112,7 +112,7 @@ wedra run examples/my_first.yaml        # --yes = авто-accept гейтов (
    PASS (минимум 3 кейса: happy path, доменная ошибка, битый JSON exit 2;
    реальных ключей в тестах нет — mock-режим, см. LLM-плагины).
 2. **Манифест честный**: `id` совпадает с именем в реестре, `permissions`
-   заполнены по §2, `author` — ты (ник/имя/«community · кто»).
+   заполнены по §2, `author` — ты (ник/имя).
 3. **Сдача — любой способ** (по трению):
    - zip папки автору → он делает PR (каталог + запись в registry.yaml);
    - fork + PR в `wykserdex/wedra`: `plugins/community/<name>/` + 4 строки
