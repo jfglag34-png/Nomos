@@ -719,7 +719,25 @@ async function openPluginDetail(id) {
     return;
   }
   const reqs = (((d.runtime || {}).requires) || []);
-  const net = ((d.permissions || {}).network || []);
+  // Права приходят из /api/plugins/{id} полем permissions, а в нём — структура
+  // pipeline.Permissions: у неё только yaml-теги, поэтому encoding/json отдаёт
+  // ИМЕНА ПОЛЕЙ ГО (Network/Filesystem/Secrets/AnyHost), а не нижний регистр.
+  // Чтение d.permissions.network молча давало пустоту, и строка «Права» писала
+  // «сеть: —» даже для плагина, который в манифесте заявил сеть. Берём оба
+  // регистра: так карточка переживёт и json-теги в Go, и их отсутствие.
+  const perms = d.permissions || {};
+  const net = perms.Network || perms.network || [];
+  const netLine = net.map(n => {
+    const any = n.AnyHost || n.any_host;
+    const h = n.Host != null ? n.Host : n.host;
+    const p = n.Port != null ? n.Port : n.port;
+    // any_host печатаем как «*:порт», а не словом: так же эту заявку плагина
+    // показывает редактор в предупреждении валидатора («шаг syntax: плагин
+    // заявил сеть: *:53»), и читатель карточки видит то же самое.
+    return (any ? (h || '*') : h) + (p != null && p !== '' ? ':' + p : '');
+  });
+  const fsLine = perms.Filesystem || perms.filesystem || '';
+  const secLine = perms.Secrets || perms.secrets || [];
   const trustLine = d.trusted
     ? '<span class="badge ok">доверен</span>'
     : '<span class="badge err">вне allow-list</span>'
@@ -736,9 +754,9 @@ async function openPluginDetail(id) {
     <div class="sub mono dim">${esc(d.version || '')} · ${esc(d.author || '')}</div>
     <p style="line-height:1.6">${esc(d.description || 'без описания')}</p>
     <h4>Права</h4>
-    <div class="hint">сеть: ${net.length ? esc(net.map(n => n.any_host ? 'any_host' : (n.host + ':' + n.port)).join(', ')) : '—'};
-      файлы: ${esc((d.permissions || {}).filesystem || '—')};
-      секреты: ${esc(((d.permissions || {}).secrets || []).join(', ') || '—')}</div>
+    <div class="hint">сеть: ${net.length ? esc(netLine.join(', ')) : '—'};
+      файлы: ${esc(fsLine || '—')};
+      секреты: ${esc(secLine.join(', ') || '—')}</div>
     <h4 style="margin-top:16px">Зависимости Python</h4>
     ${depsBlock}`;
   const btn = $('#deps-install');

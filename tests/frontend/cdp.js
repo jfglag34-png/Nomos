@@ -6,6 +6,14 @@
 // node cdp.js <url> <out.png> [actions.json]
 //   action: {"wait":500} {"click":[x,y]} {"drag":[x1,y1,x2,y2]} {"eval":"js"}
 //           {"shot":"other.png"} {"key":"Enter"} {"text":"строка"}
+//           {"metrics":[1760,900]} {"nav":"url"}
+//
+// CDP_VIEWPORT=1760x900 — размер САМОГО снимка в пикселях. Без него размер
+//   окна не совпадает с картинкой: --window-size задаёт ОКНО, а в снимок
+//   попадает область страницы, и она меньше на рамку. Точный размер нужен
+//   публикуемым скриншотам: под README их читают как «экран 1760x900».
+//   {"metrics":[w,h]} внутри сценария — то же самое посреди сессии, чтобы
+//   снять один и тот же экран на двух ширинах.
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
@@ -46,6 +54,13 @@ async function shot(file) {
   console.log('  снимок ' + file + ' (' + kb + ' КиБ)');
 }
 
+// metrics — задать размер области страницы ровно в пикселях снимка.
+async function metrics(w, h) {
+  await send('Emulation.setDeviceMetricsOverride', {
+    width: w, height: h, deviceScaleFactor: 1, mobile: false,
+  });
+}
+
 async function main() {
   // ждём, пока браузер поднимет порт отладки
   let target = null;
@@ -73,6 +88,9 @@ async function main() {
   await send('Runtime.enable');
   await send('Log.enable');
 
+  const VIEWPORT = /^(\d+)x(\d+)$/.exec(process.env.CDP_VIEWPORT || '');
+  if (VIEWPORT) await metrics(+VIEWPORT[1], +VIEWPORT[2]);
+
   await send('Page.navigate', { url: URL_ });
   await sleep(2200); // дать отработать загрузке и первым запросам
 
@@ -82,6 +100,7 @@ async function main() {
     const list = JSON.parse(fs.readFileSync(ACTIONS, 'utf8'));
     for (const a of list) {
       if (a.wait) { await sleep(a.wait); continue; }
+      if (a.metrics) { await metrics(a.metrics[0], a.metrics[1]); await sleep(400); continue; }
       if (a.nav) {
         await send('Page.navigate', { url: a.nav });
         await sleep(a.navWait || 2000);
@@ -90,8 +109,13 @@ async function main() {
       if (a.shot) { await shot(a.shot); continue; }
       if (a.eval) {
         const r = await send('Runtime.evaluate', { expression: a.eval, returnByValue: true, awaitPromise: true });
+        // Исключение в eval молча выглядело бы как «вернулось undefined» —
+        // а это читается как «проверка прошла». Поэтому текст ошибки печатается.
+        const ex = r.exceptionDetails;
         const v = r.result && r.result.value;
-        console.log('  eval: ' + (typeof v === 'string' ? v : JSON.stringify(v)));
+        console.log('  eval: ' + (ex
+          ? 'ИСКЛЮЧЕНИЕ ' + (ex.exception && ex.exception.description || ex.text)
+          : (typeof v === 'string' ? v : JSON.stringify(v))));
         continue;
       }
       if (a.click) {

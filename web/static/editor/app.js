@@ -2346,6 +2346,12 @@ async function openFile(file) {
     state.unsupported = doc.unsupported || [];
     state.sel = null;
     $('#file-name').value = file;
+    // Селект «открыть существующий» тоже должен показать открытый файл:
+    // loadFileList() отмечает в нём текущий документ, а на обычном пути
+    // (консоль → редактор) это всегда new_pipeline.yaml, и без этой строки
+    // в шапке имя файла и имя в списке расходились.
+    const fsel = $('#file-open');
+    if (fsel && [...fsel.options].some(o => o.value === file)) fsel.value = file;
     // несколько шагов на одной позиции — из-за этого они приезжали стопкой
     if (spreadSteps()) note('шаги стояли друг на друге — развёл их по сетке');
     renderAll();

@@ -303,7 +303,12 @@
   .node{border-left:3px solid var(--role)}
   .node .nh .rdot{width:7px;height:7px;border-radius:50%;background:var(--role);
     flex:none;margin-right:6px}
-  .node .nh .rwrap{display:flex;align-items:center;gap:0;min-width:0}
+  /* Обёртка подписи роли не сжимается (flex:none), иначе при нехватке
+     места она сжимается, а её содержимое — имя шага и подпись роли — вылезает
+     за рамку и ложится поверх имени плагина: измеренный наезд 6–36 px в узлах
+     с ролями «шаг», «условие», «параллельно». Теперь дефицит места гасит
+     .nplug — у него ellipsis, то есть обрезается ровно то, чему он и служит. */
+  .node .nh .rwrap{display:flex;align-items:center;gap:0;flex:none}
   .node .nh .rlabel{font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;
     text-transform:uppercase;color:var(--ash);margin-left:8px;flex:none}
   .node:hover{border-color:var(--hair2);border-left-color:var(--role)}

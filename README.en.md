@@ -134,7 +134,7 @@ Full breakdown with code references: [docs/format-compatibility.md](docs/format-
 The local console (`wedra gui`) shows runs with a timeline, pipelines with a DAG,
 the plugin catalog, and a visual editor:
 
-![Building a chain and running it: home, editor with linked steps, step properties and a run](demo.gif)
+![Building a chain and running it: home, editor with linked steps, step properties, the chain as YAML and a run](demo.gif)
 
 The full console tour is in [`docs/demo.gif`](docs/demo.gif).
 
@@ -169,9 +169,11 @@ and are not to be reorganized without a public proposal and migration plan.
 | ![Home screen](docs/screenshots/menu.png) | ![Run: timeline and context](docs/screenshots/run-detail.png) |
 | **Home** — what to run next | **Run** — step timeline, live journal and context |
 | ![Pipeline and DAG](docs/screenshots/pipeline-dag.png) | ![Plugin card](docs/screenshots/plugin-detail.png) |
-| **Pipeline** — YAML, DAG and validation before launch | **Plugin** — permissions, dependencies, contract |
+| **Pipeline** — YAML, DAG and validation before launch | **Plugin** — description, permissions and dependencies |
 | ![Visual editor](docs/screenshots/editor.png) | |
 | **Editor** — build the chain by dragging, round-trip through the core | |
+| ![Settings: standard density](docs/screenshots/prefs-standard.png) | ![Settings: compact density](docs/screenshots/prefs-compact.png) |
+| **Settings, standard** — density, accent, node roles, rail width | **Settings, compact** — the same screen at a smaller type size and tighter padding |
 
 ## Community and safety
 
