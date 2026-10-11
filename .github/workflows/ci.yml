@@ -105,6 +105,40 @@ jobs:
           ./wedra plugin list
           ./wedra plugin search csv
           ./wedra plugin search llm
+      # Ловит класс «установлено нечитаемое»: install нормализует пресет через
+      # yaml.Marshal, и вывод маршалинга один раз разошёлся с парсером так,
+      # что `pipeline install` печатал «пресет готов», а следующий же
+      # `pipeline validate` падал («when: path обязателен»,
+      # «cannot unmarshal !!map into string»). Шаг pipelines проверяет
+      # examples/ репозитория (написаны руками, валидны), а registry смотрит
+      # манифесты плагинов — ни один из них не смотрит на байты, которые
+      # install реально записал.
+      #
+      # Пресеты выбраны не случайно: when_demo — единственный с when (терялся
+      # пустой блок when), email_check — с timeout (терялся timeout:
+      # {duration: 10s}). Класс ловится любым из двух; все 12 не берутся,
+      # потому что шаг должен остаться в пределах секунды.
+      #
+      # Реестр собирается на месте, а не берётся из registry.yaml: там source
+      # указывает на удалённый git с commit-пином, и шаг ушёл бы в clone вместо
+      # проверки. Здесь source — этот же checkout, шаг офлайновый. Плагины
+      # копируются ровно те, что нужны двум пресетам (остальные — работа шага
+      # plugins), чтобы шаг не зависел от всех 99 манифестов и не ушёл в сеть.
+      - name: preset install → validate (installed bytes must read back)
+        run: |
+          set -eu
+          work=$(mktemp -d)
+          printf 'version: "0.1"\npresets:\n  when_demo:\n    source: %s\n    path: examples/when_demo.yaml\n  email_check:\n    source: %s\n    path: examples/email_check.yaml\n' "$PWD" "$PWD" > "$work/registry.yaml"
+          mkdir -p "$work/plugins/community" "$work/plugins/official"
+          cp -r plugins/community/text_analyzer plugins/community/word_freq "$work/plugins/community/"
+          cp -r plugins/official/syntax_mx_checker plugins/official/disposable_checker "$work/plugins/official/"
+          # install пишет в examples/ относительно CWD — работаем в отдельном
+          # каталоге, чтобы не переписывать примеры самого checkout.
+          cd "$work"
+          for p in when_demo email_check; do
+            "$GITHUB_WORKSPACE/wedra" pipeline install "$p" --registry=registry.yaml
+            "$GITHUB_WORKSPACE/wedra" pipeline validate "examples/$p.yaml"
+          done
       - name: v0.20 control flow live (when, foreach-step, parallel)
         run: |
           ./wedra pipeline run examples/when_demo.yaml --yes
@@ -184,7 +218,52 @@ jobs:
           ed -X POST localhost:8919/api/parse/pipeline --data-binary @examples/gate_demo.yaml | grep '"name":"gate_demo"'
           ed -X POST localhost:8919/api/parse/pipeline --data-binary @examples/single_check.yaml | grep '"plugin":"core/human_gate"'
           ed -X POST localhost:8919/api/parse/pipeline --data-binary @examples/when_demo.yaml | grep '"when":{"path":"steps.stats.words","op":"gte","value":10}'
-          ed -X POST localhost:8919/api/serialize/pipeline -H 'Content-Type: application/json' -d "$(ed -X POST localhost:8919/api/parse/pipeline --data-binary @examples/single_check.yaml)" | grep '"ok":true'
+          # Round-trip по-настоящему: parse(serialize(doc)) == doc, а не только
+          # ok:true. Шаг выше ждал только «успех» от serialize и результат
+          # обратно не читал — ровно этим способом класс «маршалинг несимметричен
+          # парсингу» доехал до релиза незамеченным. Сравнение строгое: без
+          # нормализации, поле в поле, включая when/timeout/retry/bind/form.
+          # Несущественность проверена: если serialize начать терять timeout
+          # шага, single_check даёт «.steps[0].timeout: '10s' != ''» и шаг падает.
+          cat > /tmp/rt_diff.py <<'PY'
+          import json, sys
+          def diff(a, b, path=""):
+              if type(a) is not type(b):
+                  return ["%s: %r != %r" % (path or "/", a, b)]
+              if isinstance(a, dict):
+                  out = []
+                  for k in sorted(set(a) | set(b)):
+                      if k not in a or k not in b:
+                          out.append("%s.%s: есть только с одной стороны" % (path, k))
+                      else:
+                          out += diff(a[k], b[k], "%s.%s" % (path, k))
+                  return out
+              if isinstance(a, list):
+                  if len(a) != len(b):
+                      return ["%s: длина %d != %d" % (path or "/", len(a), len(b))]
+                  out = []
+                  for i, (x, y) in enumerate(zip(a, b)):
+                      out += diff(x, y, "%s[%d]" % (path, i))
+                  return out
+              return [] if a == b else ["%s: %r != %r" % (path or "/", a, b)]
+          name, before, after = sys.argv[1], sys.argv[2], sys.argv[3]
+          d = diff(json.load(open(before)), json.load(open(after)))
+          if d:
+              sys.exit("%s: parse(serialize(doc)) != doc:\n  %s" % (name, "\n  ".join(d)))
+          print("round-trip ok: " + name)
+          PY
+          rt() {
+            ed -X POST localhost:8919/api/parse/pipeline --data-binary @"$1" > /tmp/rt_before.json
+            ed -X POST localhost:8919/api/serialize/pipeline -H 'Content-Type: application/json' --data-binary @/tmp/rt_before.json > /tmp/rt_ser.json
+            grep -q '"ok":true' /tmp/rt_ser.json || { echo "serialize ok=false: $1"; cat /tmp/rt_ser.json; exit 1; }
+            python3 -c 'import json,sys; sys.stdout.write(json.load(open("/tmp/rt_ser.json"))["yaml"])' > /tmp/rt.yaml
+            ed -X POST localhost:8919/api/parse/pipeline --data-binary @/tmp/rt.yaml > /tmp/rt_after.json
+            python3 /tmp/rt_diff.py "$1" /tmp/rt_before.json /tmp/rt_after.json || exit 1
+          }
+          rt examples/gate_demo.yaml
+          rt examples/single_check.yaml
+          rt examples/when_demo.yaml
+          rt examples/csv_foreach_summary.yaml
           ed -X POST localhost:8919/api/serialize/pipeline -H 'Content-Type: application/json' -d '{"name":"when_ci","input":[],"steps":[{"id":"g","plugin":"core/human_gate","pos":[0,0],"on_error":"stop","when":{"path":"input.x","op":"truthy"},"form":[],"actions":["accept"],"on_reject":"stop","unsupported":[]}]}' | grep '"ok":true'
           ed -X POST localhost:8919/api/serialize/pipeline -H 'Content-Type: application/json' -d '{"name":"when_ci2","input":[],"steps":[{"id":"g","plugin":"core/human_gate","pos":[0,0],"on_error":"stop","when":{"path":"input.x","op":"gt","value":"15"},"form":[],"actions":["accept"],"on_reject":"stop","unsupported":[]}]}' | grep 'value: 15'
           ed -X POST localhost:8919/api/serialize/pipeline -H 'Content-Type: application/json' -d '{"name":"when_ci3","input":[],"steps":[{"id":"g","plugin":"core/human_gate","pos":[0,0],"on_error":"stop","when":{"path":"input.x","op":"bogo"},"form":[],"actions":["accept"],"on_reject":"stop","unsupported":[]}]}' | grep '"ok":false'

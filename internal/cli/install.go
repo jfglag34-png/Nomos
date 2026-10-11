@@ -211,6 +211,37 @@ type presetProvenance struct {
 	SourceSum string // "sha256:<hex>" исходных байт (пусто, если не считали)
 }
 
+// presetMarshal — шов для тестов. Прод — это yaml.Marshal; подменяется он
+// ровно одним способом: тест кладёт сюда несимметричный парсингу маршалинг и
+// убеждается, что installPipelinePreset отказывается публиковать его вывод.
+// Без этого шва проверка «файл на диске читается» проверяла бы сегодняшний
+// маршалинг, а не затвор: сломанный маршалинг завтра просто сделал бы install
+// зелёным.
+var presetMarshal = func(pf *pipeline.PipelineFile) ([]byte, error) {
+	return yaml.Marshal(pf)
+}
+
+// verifyStagedPreset — читает уже записанный на диск пресет тем же
+// загрузчиком, которым его потом прочитает пользователь, и прогоняет тем же
+// валидатором. installedPath — имя, под которым файл окажется в examples/:
+// в ошибке пользователь должен видеть свой путь, а не имя временного файла.
+//
+// Зачем это вообще нужно: до правки всё проверяло СТРУКТУРУ в памяти, а на диск
+// уходил результат yaml.Marshal, и эти две вещи расходились. Разошлись один
+// раз и уехали в релиз вместе с сообщением «пресет готов».
+func verifyStagedPreset(staged, installedPath string) error {
+	written, err := pipeline.LoadPipelineFile(staged)
+	if err != nil {
+		return fmt.Errorf("установленный пресет не читается ядром (%s): %w", installedPath, err)
+	}
+	errs, _ := core.Validate(written, core.NewEngine())
+	if len(errs) > 0 {
+		return fmt.Errorf("установленный пресет не проходит валидацию после записи (%s): %s",
+			installedPath, strings.Join(errs, "; "))
+	}
+	return nil
+}
+
 func commitPresetFile(staged, target string) error {
 	if _, err := os.Stat(target); err != nil {
 		if os.IsNotExist(err) {
@@ -256,7 +287,7 @@ func installPipelinePreset(raw []byte, fallbackName, registrySrc string, prov pr
 			}
 		}
 	}
-	normalized, err := yaml.Marshal(pf)
+	normalized, err := presetMarshal(pf)
 	if err != nil {
 		return pipelineInstallResult{}, fmt.Errorf("не удалось нормализовать пресет: %w", err)
 	}
@@ -329,6 +360,16 @@ func installPipelinePreset(raw []byte, fallbackName, registrySrc string, prov pr
 	result.Warnings = warns
 	if len(errs) > 0 {
 		return result, fmt.Errorf("валидация пресета: %s", strings.Join(errs, "; "))
+	}
+	// Fail-closed на ЗАПИСАННЫЕ байты, а не на структуру в памяти.
+	//
+	// Проверка стоит ДО commit: негодный файл не должен ни появиться в
+	// examples/, ни вытеснить оттуда прежний рабочий. Поэтому вопроса «оставить
+	// плохой файл на разбор» не возникает — на диск он не попадает, временный
+	// файл убирает defer ниже. Отказ виден пользователю как ошибка установки,
+	// а не как «пресет готов», после которого следующая же команда падает.
+	if err := verifyStagedPreset(stagedName, outFile); err != nil {
+		return result, err
 	}
 	// Провенанс: sidecar есть, а файл после установки разошёлся — предупреждаем
 	// (не блокируем: examples/ правят руками), но факт фиксируем.
