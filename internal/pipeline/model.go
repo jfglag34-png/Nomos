@@ -11,6 +11,14 @@ import (
 // Duration — обёртка над time.Duration для YAML-строк вида "10s", "250ms".
 type Duration struct{ time.Duration }
 
+// MarshalYAML обязателен парно к UnmarshalYAML. Без него yaml.v3 пишет
+// `timeout: {duration: 0s}`, а чтение падает с «cannot unmarshal !!map into
+// string». Это ловил `wedra pipeline install`: он нормализует пресет через
+// yaml.Marshal и единственное место, где core-структура уходит на диск.
+func (d Duration) MarshalYAML() (interface{}, error) {
+	return d.Duration.String(), nil
+}
+
 func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 	var s string
 	if err := value.Decode(&s); err != nil {
@@ -67,7 +75,7 @@ type Step struct {
 
 	// v0.20: управляющий поток на уровне шага
 	// When — условие: шаг выполняется, только если оно истинно (иначе skipped)
-	When When `yaml:"when"`
+	When When `yaml:"when,omitempty"`
 	// Foreach — шаг выполняется по каждому элементу массива из пути
 	// (input.* или steps.<id>.<field>). Результаты агрегируются в
 	// steps.<id>_all; steps.<id> — выход последней итерации.
