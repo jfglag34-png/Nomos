@@ -1,35 +1,53 @@
 id: detect_secrets
-version: 0.1.0
+version: 0.2.0
 platform_api: "^0.1"
 description: >
   detect-secrets (Yelp/detect-secrets) — поиск секретов в коде и конфигах
-  (AWS-ключи, приватные ключи, строки высокой энтропии и т.п.). Обёртка запускает
-  `detect-secrets scan <path> --all-files`, читает baseline-JSON со stdout и
-  отдаёт список мест (тип, файл, строка) — без значений секретов и без их хэшей.
-  Ставится отдельно: pip install detect-secrets.
+  (ключи облаков, строки «password = …», приватные ключи, строки высокой
+  энтропии). Обёртка запускает `python3 -m detect_secrets scan <path>
+  --all-files`, читает baseline-JSON со stdout и отдаёт места находок: тип,
+  путь относительно корня сканирования, номер строки. Значения секретов и их
+  SHA-1 наружу не отдаются. Пин: pip install detect-secrets==1.5.0
 author: "community · wedra showcase (AppSec)"
 
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; пакет detect-secrets — отдельно (pip install detect-secrets)
+  # Пин донора в runtime.requires, а не пометка «поставьте отдельно»: без него
+  # pip-пакет никто не ставил, плагин числился готовым в UI и падал на первом
+  # же запуске. Требования донора (requests, ruamel.yaml) в lock не входят
+  # намеренно — lock по контракту валидатора содержит ровно объявленные пины,
+  # а их ставит pip вместе с depends.
+  requires: ["detect-secrets==1.5.0"]
 
 input:
+  # Путь, который сканируется. Донор принимает и файл, и каталог; обёртка
+  # отдаёт в output.path абсолютную форму того, что реально просканировала.
   path:
     from: input.path
     type: string
-    format: file_ref # каталог или файл для сканирования
+    format: file_ref
   wall_timeout:
     from: input.wall_timeout
     type: number
     optional: true      # общий лимит рана, секунды (default 300)
 
 output:
-  path:    { type: string }
-  secrets: { type: array }   # [{type, filename, line_number}]
+  path:    { type: string, format: file_ref }
+  # Находка = {type, filename, line_number}. Имена типов символические и
+  # ровно те, что печатает донор («Secret Keyword», «AWS Access Key»): свой
+  # словарь типов у обёртки был бы второй правдой, которая устареет первой.
+  secrets: { type: array }
   count:   { type: number }
+  # Версия набора детекторов донора (baseline.version). Без неё «находок нет»
+  # неотличимо от «эта версия не знает про такой тип ключа».
+  detector_version: { type: string, format: text }
 
 permissions:
-  network: []            # сканирование локальных файлов, сеть не нужна
+  network: []            # сканирование локальных файлов, сеть не нужна: донор в
+                        # режиме scan не обращается наружу (проверено запуском с
+                        # заблокированными socket.connect/getaddrinfo). Путь с
+                        # сетью у него есть — verify/audit, — но обёртка их не
+                        # включает: в argv только `scan <path> --all-files`.
   filesystem: read       # читает только указанный пользователем путь
   secrets: []

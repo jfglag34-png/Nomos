@@ -1,0 +1,5 @@
+# Фикстура конформных тестов detect_secrets. Ключ — опубликованный пример
+# из документации AWS (AKIAIOSFODNN7EXAMPLE), настоящих ключей в репозитории нет.
+aws_access_key_id: AKIAIOSFODNN7EXAMPLE
+region: eu-central-1
+replicas: 3

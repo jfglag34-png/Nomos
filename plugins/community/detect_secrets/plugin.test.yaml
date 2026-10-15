@@ -1,103 +1,173 @@
-# Контракт-тесты detect_secrets (mock CLI detect-secrets, без пакета и без сети).
+# Контракт-тесты detect_secrets.
+#
+# Тесты разбиты на две группы, и различие между ними существенное.
+#
+# 1. РЕАЛЬНЫЙ ИНСТРУМЕНТ (кейсы без DETECT_SECRETS_BIN) — донор запускается
+#    по-настоящему, `python3 -m detect_secrets scan … --all-files`. Эти кейсы
+#    доказывают контракт: типы портов, имена полей и — главное — что донор
+#    возвращает именно то, что мы объявили. Пока донор не установлен, кейсы
+#    падают: это правда, а не сбой теста.
+#
+# 2. МОК (кейсы с DETECT_SECRETS_BIN) — ветки отказа. Настоящий detect-secrets
+#    нельзя детерминированно заставить упасть или зависнуть на конкретном
+#    входе, поэтому для них нужен управляемый двойник. Мок проверяет разбор
+#    ответа и коды ошибок, но НЕ проверяет, что донор ведёт себя так же, —
+#    поэтому он не может заменить группу 1.
+#
+# Фикстуры лежат в fixtures/ и передаются относительными путями: подпроцесс
+# плагина стартует в каталоге плагина, абсолютный путь был бы привязан к
+# машине.
 tests:
-  - name: сканирование → места секретов (без значений)
-    env: { DETECT_SECRETS_BIN: "mock_detect_secrets.py" }
-    input: { path: "." }
+  # ── 1. реальный инструмент ───────────────────────────────────────────────
+  - name: "РЕАЛ: каталог с находками → места, типы и номера строк"
+    input: { path: "fixtures/leaky" }
+    timeout: 60s
     expect:
       status: ok
+      exit_code: 0
       output:
         path: { contains: "detect_secrets" }
-        count: 3
+        detector_version: "1.5.0"
+        count: 2
+        # equals сравнивает массив целиком, вместе с порядком: это и есть
+        # проверка детерминированности — порядок обхода каталогов зависит от
+        # ФС, а порядок в выводе задаёт плагин.
         secrets:
           equals:
-            - { type: "Secret Keyword", filename: "conf/settings.py", line_number: 12 }
-            - { type: "Secret Keyword", filename: "conf/settings.py", line_number: 31 }
-            - { type: AWSKeyDetector, filename: "deploy/values.yaml", line_number: 4 }
+            - { type: "Secret Keyword", filename: "conf/settings.py", line_number: 2 }
+            - { type: "AWS Access Key", filename: "deploy/values.yaml", line_number: 3 }
 
-  - name: секретов не нашли → ok, пустой массив
-    env: { DETECT_SECRETS_BIN: "mock_detect_secrets.py", MOCK_EMPTY_RESULTS: "1" }
-    input: { path: "." }
+  - name: "РЕАЛ: чистый каталог → ok и ноль находок (не ошибка)"
+    input: { path: "fixtures/clean" }
+    timeout: 60s
     expect:
       status: ok
+      exit_code: 0
       output:
         count: 0
         secrets: []
+        detector_version: "1.5.0"
 
-  - name: пустой path → доменная ошибка
-    env: { DETECT_SECRETS_BIN: "mock_detect_secrets.py" }
+  - name: "РЕАЛ: файл вместо каталога (порт file_ref принимает и файл)"
+    input: { path: "fixtures/leaky/conf/settings.py" }
+    timeout: 60s
+    expect:
+      status: ok
+      exit_code: 0
+      output:
+        path: { contains: "settings.py" }
+        count: 1
+        secrets:
+          equals:
+            - { type: "Secret Keyword", filename: "settings.py", line_number: 2 }
+
+  - name: "РЕАЛ: wall_timeout числом доезжает до обёртки"
+    input: { path: "fixtures/clean", wall_timeout: 60 }
+    timeout: 90s
+    expect:
+      status: ok
+      output: { count: 0 }
+
+  - name: "РЕАЛ: пустой path → доменная ошибка, донор не запускался"
     input: { path: "   " }
     expect:
       status: error
       exit_code: 1
-      error: { code: empty_path }
+      error: { code: empty_path, retryable: false }
 
-  - name: несуществующий path → доменная ошибка
-    env: { DETECT_SECRETS_BIN: "mock_detect_secrets.py" }
+  - name: "РЕАЛ: несуществующий path → доменная ошибка"
+    # Отдельный кейс именно потому, что донор на таком входе отвечает exit 0
+    # и results: {} — то есть сам по себе он превратил бы опечатку в пути в
+    # «секретов не нашли». Проверку делает обёртка, и это её достоинство.
     input: { path: "/nonexistent/detect-secrets-scan-dir" }
     expect:
       status: error
       exit_code: 1
       error: { code: missing_path, retryable: false }
 
-  - name: wall_timeout не число → платформенная ошибка
-    env: { DETECT_SECRETS_BIN: "mock_detect_secrets.py" }
-    input: { path: ".", wall_timeout: "не число" }
+  - name: "РЕАЛ: битый JSON входа → платформенная ошибка"
+    input_raw: "{не json"
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_input }
+
+  - name: "РЕАЛ: wall_timeout не число → платформенная ошибка"
+    input: { path: "fixtures/clean", wall_timeout: "не число" }
     expect:
       status: error
       exit_code: 2
       error: { code: platform:bad_wall_timeout }
 
-  - name: detect-secrets не установлен (путь)
+  - name: "РЕАЛ: wall_timeout ≤ 0 → платформенная ошибка"
+    # Без проверки здесь subprocess получил бы неположительный timeout и вернул
+    # TimeoutExpired, то есть плагин отчитался бы «timeout, retryable» про
+    # вход, который повтором не чинится.
+    input: { path: "fixtures/clean", wall_timeout: 0 }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  # ── 2. мок: ветки отказа, которые нельзя вызвать у настоящего донора ────
+  - name: "МОК: detect-secrets не установлен (путь)"
     env: { DETECT_SECRETS_BIN: "/nonexistent/detect-secrets-bin" }
-    input: { path: "." }
+    input: { path: "fixtures/clean" }
     expect:
       status: error
       exit_code: 1
       error: { code: detect_secrets_not_installed, retryable: false }
 
-  - name: detect-secrets не установлен (имя из PATH)
+  - name: "МОК: detect-secrets не установлен (имя из PATH)"
     env: { DETECT_SECRETS_BIN: "definitely_not_a_detect_secrets_bin_xyz" }
-    input: { path: "." }
+    input: { path: "fixtures/clean" }
     expect:
       status: error
       exit_code: 1
       error: { code: detect_secrets_not_installed }
 
-  - name: wall timeout → доменная, retryable
+  - name: "МОК: wall timeout → доменная, retryable"
     env: { DETECT_SECRETS_BIN: "mock_detect_secrets.py", MOCK_SLEEP: "3" }
-    input: { path: ".", wall_timeout: 1 }
+    input: { path: "fixtures/clean", wall_timeout: 1 }
     timeout: 20s
     expect:
       status: error
       exit_code: 1
       error: { code: timeout, retryable: true }
 
-  - name: detect-secrets без baseline → доменная ошибка
+  - name: "МОК: detect-secrets без baseline → доменная ошибка"
     env: { DETECT_SECRETS_BIN: "mock_detect_secrets.py", MOCK_NO_REPORT: "1" }
-    input: { path: "." }
+    input: { path: "fixtures/clean" }
     expect:
       status: error
       exit_code: 1
       error: { code: no_report }
 
-  - name: битый baseline → платформенная ошибка
+  - name: "МОК: битый baseline → платформенная ошибка"
     env: { DETECT_SECRETS_BIN: "mock_detect_secrets.py", MOCK_BAD_REPORT: "1" }
-    input: { path: "." }
+    input: { path: "fixtures/clean" }
     expect:
       status: error
       exit_code: 2
       error: { code: platform:bad_report }
 
-  - name: detect-secrets упал → доменная ошибка
+  - name: "МОК: baseline без version → платформенная ошибка"
+    # Находки без указания версии детекторов непригодны: неизвестно, какой
+    # набор правил их породил. Пустой строкой это не подменяется.
+    env: { DETECT_SECRETS_BIN: "mock_detect_secrets.py", MOCK_NO_VERSION: "1" }
+    input: { path: "fixtures/clean" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: "МОК: detect-secrets упал → доменная ошибка"
+    # Ненулевой код возврата — отказ даже при непустом stdout: у донора scan
+    # всегда завершается 0, значит непустой baseline при коде != 0 означает
+    # обрыв, а не результат.
     env: { DETECT_SECRETS_BIN: "mock_detect_secrets.py", MOCK_FAIL: "1" }
-    input: { path: "." }
+    input: { path: "fixtures/clean" }
     expect:
       status: error
       exit_code: 1
       error: { code: tool_failed, retryable: false }
-
-  - name: битый JSON входа → платформенная ошибка
-    env: { DETECT_SECRETS_BIN: "mock_detect_secrets.py" }
-    input_raw: "{не json"
-    expect:
-      exit_code: 2

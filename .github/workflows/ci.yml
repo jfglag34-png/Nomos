@@ -90,9 +90,16 @@ jobs:
         run: |
           GOBIN="$RUNNER_TEMP/bin" go install honnef.co/go/tools/cmd/staticcheck@2026.2.1
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      # Доноры, чьи конформные тесты запускают НАСТОЯЩИЙ инструмент, а не мок.
+      # ssl_info нужен для tests/plugins, detect_secrets — для шага plugins и
+      # registry внутри `wedra check`: его plugin.test.yaml запускает реальный
+      # `detect-secrets`, и без пакета эти кейсы падают. Пин — тот же, что в
+      # runtime.requires плагина; молча пропустить его нельзя, иначе «зелёный»
+      # CI будет означать «донор не установлен, тесты не проверялись».
       - name: plugin regression tests
         run: |
           python3 -m pip install --disable-pip-version-check -r plugins/community/ssl_info/requirements.lock
+          python3 -m pip install --disable-pip-version-check -r plugins/community/detect_secrets/requirements.lock
           python3 -m unittest discover -s tests/plugins -v
       - name: wedra check (fmt, vet, lint, mod, versions, errcodes, schemas, supply, build, test, conformance, mcp, pipelines, plugins, registry)
         run: go run ./cmd/wedra check --race --timeout=720
