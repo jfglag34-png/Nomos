@@ -782,3 +782,51 @@ presets:
     version: v0.33c
     commit: 330e068a362c8d6ba6b337226182a5ff586bff8b
     description: "Разбор PE-файла (pefile): архитектура, секции, импорты + human_gate на показ; network: deny."
+  csv_load:
+    source: https://github.com/wykserdex/wedra
+    path: examples/csv_load.yaml
+    version: v0.33c
+    commit: eb34e1495662d499604bedd12e7e9f846c7c3bfe
+    description: "Загрузка CSV (csv_loader): число строк, заголовки, сами строки -> human_gate; одиночный прогон, foreach видит только input.*"
+  gate_demo:
+    source: https://github.com/wykserdex/wedra
+    path: examples/gate_demo.yaml
+    version: v0.33c
+    commit: 861ced5067506d3142cf6372d1790b5cb6853dd5
+    description: "Минимальный гейт без плагинов: правящееся поле note, accept/reject; reject = неуспех рана (exit 1)."
+  llm_same_provider:
+    source: https://github.com/wykserdex/wedra
+    path: examples/llm_same_provider.yaml
+    version: v0.33c
+    commit: dc5db0cfdba6a0065fc339f35a72358b30e7ee90
+    description: "llm_gemini дважды в одной цепочке: draft -> human_gate -> refine, bind перекрывает разводку манифеста; network: allow, ключ GEMINI_API_KEY."
+  osint_domain_audit:
+    source: https://github.com/wykserdex/wedra
+    path: examples/osint_domain_audit.yaml
+    version: v0.33c
+    commit: dc5db0cfdba6a0065fc339f35a72358b30e7ee90
+    description: "Аудит домена: параллельно crt.sh (CT-сертификаты) + theHarvester (почты/хосты) -> human_gate; network: allow, нужны внешние доноры."
+  osint_username_audit:
+    source: https://github.com/wykserdex/wedra
+    path: examples/osint_username_audit.yaml
+    version: v0.33c
+    commit: dc5db0cfdba6a0065fc339f35a72358b30e7ee90
+    description: "Цепочка username -> Maigret (4000+ сайтов) -> email -> Holehe (утечки) -> human_gate; network: allow, нужны CLI maigret/holehe."
+  quick_intel:
+    source: https://github.com/wykserdex/wedra
+    path: examples/quick_intel.yaml
+    version: v0.33c
+    commit: 9f5db34099255ce45429670965991d695e32bc40
+    description: "Офлайн-разбор цели: домен, IP, e-mail из текста, sha256 хоста, расстояние между точками; без гейта, сеть не объявлена."
+  single_check:
+    source: https://github.com/wykserdex/wedra
+    path: examples/single_check.yaml
+    version: v0.33c
+    commit: dc5db0cfdba6a0065fc339f35a72358b30e7ee90
+    description: "Одиночная проверка e-mail: синтаксис+MX и disposable -> human_gate; bind вместо зашитого from, on_error stop/skip."
+  text_stats:
+    source: https://github.com/wykserdex/wedra
+    path: examples/text_stats.yaml
+    version: v0.33c
+    commit: d97e0b366b4b6b4fc7be0f71a27d8e196b2f8776
+    description: "Текст -> метрики (text_analyzer): строки, слова, уникальные, самое длинное -> human_gate; network: deny, полностью офлайн."
