@@ -241,7 +241,7 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/detect_secrets
     version: v0.33c
-    commit: ba824854f53311c1fd2d12f9f74d852b5f5577a4
+    commit: e747bed8fcfca4e2d6de66272c3c59829be50cf9
     description: "detect-secrets (Yelp) — поиск секретов в коде, baseline-JSON; значения секретов наружу не отдаются. pip install detect-secrets."
 
   dirsearch:
