@@ -430,8 +430,8 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/pefile
     version: v0.33c
-    commit: ba824854f53311c1fd2d12f9f74d852b5f5577a4
-    description: "pefile — разбор PE: заголовок, секции, импорты, паттерн C. pip install pefile."
+    commit: 330e068a362c8d6ba6b337226182a5ff586bff8b
+    description: "pefile (erocarrera) — разбор PE: архитектура образа, секции, каталог импортов; PDB-путь и imphash наружу не отдаются. pip install pefile==2024.8.26."
 
   pocsuite3:
     source: https://github.com/wykserdex/wedra
@@ -770,3 +770,15 @@ presets:
     version: v0.32
     commit: 21e46778e5397cf8b6f6704c4e3514902ce80858
     description: "parallel_group: word_freq и json_flatten параллельно, барьер, human_gate."
+  secrets_scan:
+    source: https://github.com/wykserdex/wedra
+    path: examples/secrets_scan.yaml
+    version: v0.33c
+    commit: e747bed8fcfca4e2d6de66272c3c59829be50cf9
+    description: "Поиск секретов в коде (detect-secrets) + human_gate на показ; network: deny, только локальные файлы."
+  pe_triage:
+    source: https://github.com/wykserdex/wedra
+    path: examples/pe_triage.yaml
+    version: v0.33c
+    commit: 330e068a362c8d6ba6b337226182a5ff586bff8b
+    description: "Разбор PE-файла (pefile): архитектура, секции, импорты + human_gate на показ; network: deny."
