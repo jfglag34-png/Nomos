@@ -330,6 +330,130 @@ func TestDoctorIgnoresPipFlagsAndURLs(t *testing.T) {
 	}
 }
 
+// Адрес установки не должен превращаться в имя пакета.
+//
+// ДО правки: обрезание описания по «,:;» шло раньше проверок VCS/URL и
+// оставляло от ссылки ровно схему, а схема — валидное имя пакета:
+//
+//	pip install https://github.com/x/y-1.0.tar.gz?a=b  → донор «https»
+//	pip install git://github.com/x/y.git                → донор «git»
+//	pip install file:///opt/tools/y                     → донор «file»
+//	pip install https://example.com/y.tar.gz#egg=x      → донор «https»
+//
+// Ни один манифест в репозитории так не пишет, поэтому дыры не было видно в
+// выводе, но она была ложной по построению: тот, кто напишет адрес в
+// описании, получил бы человеку совет «pip install https».
+func TestDoctorRejectsURLInstallTargets(t *testing.T) {
+	cases := []struct{ desc, before string }{
+		{"pip install https://github.com/x/y-1.0.tar.gz?a=b", "https"},
+		{"pip install https://example.com/y-1.0.tar.gz#egg=x", "https"},
+		{"pip install git://github.com/x/y.git", "git"},
+		{"pip install file:///opt/tools/y", "file"},
+		{"pip install git+https://github.com/x/y.git", ""},
+		{"pip install git+ssh://git@github.com/x/y.git#egg=y", ""},
+		{"pip install hg+http://example.com/y", ""},
+		{"pip install svn+ssh://example.com/y", ""},
+		{"pip install http://example.com/y.tar.gz", ""},
+		{"pip install ftp://example.com/y.tar.gz", ""},
+		{"pip install git@github.com:x/y.git#egg=y", ""},
+		{"Ставится: pip install 'https://example.com/y.tar.gz'.", ""},
+		{"Ставится: pip install (https://example.com/y.tar.gz).", ""},
+		{"Установка: pip install https://example.com/y.tar.gz#egg=y.", ""},
+	}
+	for _, c := range cases {
+		got, ok := donorFromDescription(c.desc)
+		if ok {
+			t.Errorf("donorFromDescription(%q) = %q, ждали отказ (до правки давала %q)",
+				c.desc, got, c.before)
+			continue
+		}
+		if got != "" {
+			t.Errorf("donorFromDescription(%q) = %q при ok=false, а имя при отказе должно быть пустым",
+				c.desc, got)
+		}
+	}
+}
+
+// Обратная сторона правки: честные пины и чистка мусора из описаний обязаны
+// остаться ровно такими же, какими были ДО неё. Значения здесь не выдуманы,
+// а сняты с того же кода до правки — если правило «отсекать ссылку» начнёт
+// рубить что-то ещё, упадёт этот тест, а не тот, что про адреса.
+//
+// Ключевой случай — `vt-py):`: там двоеточие тоже часть мусора, и отличить
+// его от двоеточия в схеме можно только по `//` после него. Поэтому «режем
+// по первому `,:;`» и нельзя было починить перестановкой: резать пришлось бы
+// раньше, а раньше — значит ломать мусор.
+func TestDoctorURLFixKeepsPinsAndGarbageCleanup(t *testing.T) {
+	cases := []struct{ desc, want string }{
+		// Честные пины (community/pefile, community/detect_secrets).
+		{"Пин: pip install pefile==2024.8.26", "pefile"},
+		{"Пин: pip install detect-secrets==1.5.0", "detect-secrets"},
+		{"Ставится: pip install 'exifread==3.5.1'.", "exifread"},
+		{"Ставится: pip install maigret==0.6.6, если нет.", "maigret"},
+		{"Ставится: pip install we-dr-marker==1.0;python_version<'3.9'", "we-dr-marker"},
+		// Мусор из описаний.
+		{"Донор — vt-py (import vt, REST API v3, pip install vt-py): плагин идёт", "vt-py"},
+		{"Это Go-программа, а не pip-пакет: `pip install webanalyze` на PyPI нет", "webanalyze"},
+		{"Ставится: pip install 'detect-secrets'.", "detect-secrets"},
+		{"Ставится: pip install (binwalk).", "binwalk"},
+		{"Ставится: pip install probe, если нет.", "probe"},
+		{"Ставится отдельно: pip install arjun.", "arjun"},
+	}
+	for _, c := range cases {
+		got, ok := donorFromDescription(c.desc)
+		if !ok {
+			t.Errorf("donorFromDescription(%q) не нашёл донора", c.desc)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("donorFromDescription(%q) = %q, ждали %q", c.desc, got, c.want)
+		}
+	}
+}
+
+// Сквозная проверка по отчёту, а не по одной функции: плагин, чья цель
+// установки — адрес, обязан попасть в unverified_donors («наличие НЕ
+// проверено»), а НЕ получить выдуманного донора и совет «pip install https».
+//
+// Это и есть разница между «до» и «после» для человека: раньше такой плагин
+// считался проверенным и получал неработающую команду установки.
+func TestDoctorURLInstallTargetIsUnverifiedNotAFakeDonor(t *testing.T) {
+	const desc = "Установка донора отдельно: pip install https://github.com/x/y-1.0.tar.gz?a=b"
+	root := doctorFixture(t, map[string]string{
+		"url/plugin.yaml": doctorManifestText("url", desc, nil),
+		"url/main.py":     "import json\nprint(json.dumps({'status': 'ok', 'output': {'value': 'x'}}))\n",
+		"url/README.md":   "Установка донора:\n\n    pip install https://github.com/x/y-1.0.tar.gz?a=b\n",
+	})
+	rep := runDoctor(root)
+	p := doctorOne(t, root)
+
+	if p.Donor != "" {
+		t.Errorf("donor = %q, а адрес установки донором не является", p.Donor)
+	}
+	for _, c := range p.DonorCandidates {
+		if c == "https" || c == "http" || c == "git" || c == "file" {
+			t.Errorf("в кандидатах %q — это схема адреса, а не имя бинаря: %v", c, p.DonorCandidates)
+		}
+	}
+	if strings.Contains(p.Install, "https") {
+		t.Errorf("совет установки %q обещает поставить пакет https", p.Install)
+	}
+	if p.Status != doctorReady {
+		t.Errorf("статус = %q, ждали %q: «не проверено» — это не «нужен инструмент»",
+			p.Status, doctorReady)
+	}
+	found := false
+	for _, id := range rep.UnverifiedDonors {
+		if id == "url" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("плагин не попал в unverified_donors: %v — донора из описания взять неоткуда, и врать нельзя",
+			rep.UnverifiedDonors)
+	}
+}
+
 // Версии из пина не должны попадать в имя пакета: иначе проба ищет модуль
 // «holehe==1.61», которого не бывает, и находит его только у отсутствующего.
 func TestRequirementNameStripsPin(t *testing.T) {
