@@ -1,120 +1,386 @@
-# Контракт-тесты pefile (mock сниппета донора, без пакета pefile и без сети).
-# Входной файл — заглушка (main.py в каталоге плагина): PE разбирает мок,
-# плагин проверяет оркестрацию и нормализацию JSON.
+# Контракт-тесты pefile.
+#
+# Тесты разбиты на две группы, и различие между ними существенное.
+#
+# 1. РЕАЛЬНЫЙ ИНСТРУМЕНТ (кейсы без PEFILE_BIN) — плагин запускает настоящий
+#    pefile по-настоящему, тем же сниппетом, что и в бою. Эти кейсы доказывают
+#    контракт: типы портов, имена полей, имена архитектуры и флагов (они
+#    берутся из словарей ДОНОРА), порядок и точный состав таблиц секций и
+#    импортов. Пока pefile не установлен, кейсы падают — это правда, а не
+#    сбой теста.
+#
+# 2. МОК (кейсы с PEFILE_BIN) — ветки отказа. Настоящий pefile нельзя
+#    детерминированно заставить отдать битый JSON, лишние поля или неверные
+#    типы, поэтому для них нужен управляемый двойник. Мок проверяет разбор
+#    ответа и коды ошибок, но НЕ проверяет, что донор ведёт себя так же, —
+#    поэтому он не может заменить группу 1.
+#
+# Фикстуры лежат в fixtures/ и передаются относительными путями: подпроцесс
+# плагина стартует в каталоге плагина, абсолютный путь был бы привязан к
+# машине. Бинарники (sample.dll, truncated.dll) собираются из fixtures/sample.c
+# и лежат рядом с ним — см. комментарий в том файле.
 tests:
-  - name: PE → machine, секции, импорты
-    env: { PEFILE_BIN: "mock_pefile.py" }
-    input: { file: "main.py" }
+  # ── 1. реальный инструмент ───────────────────────────────────────────────
+  - name: "РЕАЛ: PE-фикстура → архитектура, секции, импорты, версия парсера"
+    # equals сравнивает массив целиком, вместе с порядком: порядок таблиц
+    # импортов и секций задаёт файл, а не обход каталога, и проверяется он
+    # именно целиком — иначе «секций 18» прошло бы и при выпавшей секции.
+    input: { file: "fixtures/sample.dll" }
+    timeout: 60s
     expect:
       status: ok
+      exit_code: 0
       output:
-        file: "main.py"
+        file: "fixtures/sample.dll"
         machine: "IMAGE_FILE_MACHINE_AMD64"
-        count: 2
-        sections: { type: array }
-        imports: { contains: { dll: "KERNEL32.dll", symbols: ["CreateFileW", "GetProcAddress"] } }
+        machine_id: 34404
+        section_count: 18
+        import_dll_count: 6
+        parser_version: "2024.8.26"
+        sections:
+          equals:
+            - {name: ".text", virtual_address: 4096, size: 7168, characteristics: 1610612768,
+               flags: ["IMAGE_SCN_CNT_CODE", "IMAGE_SCN_MEM_EXECUTE", "IMAGE_SCN_MEM_READ"]}
+            - {name: ".data", virtual_address: 12288, size: 512, characteristics: 3221225536,
+               flags: ["IMAGE_SCN_CNT_INITIALIZED_DATA", "IMAGE_SCN_MEM_READ", "IMAGE_SCN_MEM_WRITE"]}
+            - {name: ".rdata", virtual_address: 16384, size: 1536, characteristics: 1073741888,
+               flags: ["IMAGE_SCN_CNT_INITIALIZED_DATA", "IMAGE_SCN_MEM_READ"]}
+            - {name: "/4", virtual_address: 20480, size: 512, characteristics: 3221225536,
+               flags: ["IMAGE_SCN_CNT_INITIALIZED_DATA", "IMAGE_SCN_MEM_READ", "IMAGE_SCN_MEM_WRITE"]}
+            - {name: ".pdata", virtual_address: 24576, size: 512, characteristics: 1073741888,
+               flags: ["IMAGE_SCN_CNT_INITIALIZED_DATA", "IMAGE_SCN_MEM_READ"]}
+            - {name: ".xdata", virtual_address: 28672, size: 512, characteristics: 1073741888,
+               flags: ["IMAGE_SCN_CNT_INITIALIZED_DATA", "IMAGE_SCN_MEM_READ"]}
+            - {name: ".bss", virtual_address: 32768, size: 0, characteristics: 3221225600,
+               flags: ["IMAGE_SCN_CNT_UNINITIALIZED_DATA", "IMAGE_SCN_MEM_READ", "IMAGE_SCN_MEM_WRITE"]}
+            - {name: ".edata", virtual_address: 36864, size: 512, characteristics: 1073741888,
+               flags: ["IMAGE_SCN_CNT_INITIALIZED_DATA", "IMAGE_SCN_MEM_READ"]}
+            - {name: ".idata", virtual_address: 40960, size: 1536, characteristics: 1073741888,
+               flags: ["IMAGE_SCN_CNT_INITIALIZED_DATA", "IMAGE_SCN_MEM_READ"]}
+            - {name: ".tls", virtual_address: 45056, size: 512, characteristics: 3221225536,
+               flags: ["IMAGE_SCN_CNT_INITIALIZED_DATA", "IMAGE_SCN_MEM_READ", "IMAGE_SCN_MEM_WRITE"]}
+            - {name: ".reloc", virtual_address: 49152, size: 512, characteristics: 1107296320,
+               flags: ["IMAGE_SCN_CNT_INITIALIZED_DATA", "IMAGE_SCN_MEM_DISCARDABLE", "IMAGE_SCN_MEM_READ"]}
+            - {name: "/14", virtual_address: 53248, size: 512, characteristics: 1107296320,
+               flags: ["IMAGE_SCN_CNT_INITIALIZED_DATA", "IMAGE_SCN_MEM_DISCARDABLE", "IMAGE_SCN_MEM_READ"]}
+            - {name: "/29", virtual_address: 57344, size: 5120, characteristics: 1107296320,
+               flags: ["IMAGE_SCN_CNT_INITIALIZED_DATA", "IMAGE_SCN_MEM_DISCARDABLE", "IMAGE_SCN_MEM_READ"]}
+            - {name: "/41", virtual_address: 65536, size: 512, characteristics: 1107296320,
+               flags: ["IMAGE_SCN_CNT_INITIALIZED_DATA", "IMAGE_SCN_MEM_DISCARDABLE", "IMAGE_SCN_MEM_READ"]}
+            - {name: "/55", virtual_address: 69632, size: 512, characteristics: 1107296320,
+               flags: ["IMAGE_SCN_CNT_INITIALIZED_DATA", "IMAGE_SCN_MEM_DISCARDABLE", "IMAGE_SCN_MEM_READ"]}
+            - {name: "/67", virtual_address: 73728, size: 512, characteristics: 1107296320,
+               flags: ["IMAGE_SCN_CNT_INITIALIZED_DATA", "IMAGE_SCN_MEM_DISCARDABLE", "IMAGE_SCN_MEM_READ"]}
+            - {name: "/80", virtual_address: 77824, size: 512, characteristics: 1107296320,
+               flags: ["IMAGE_SCN_CNT_INITIALIZED_DATA", "IMAGE_SCN_MEM_DISCARDABLE", "IMAGE_SCN_MEM_READ"]}
+            - {name: "/91", virtual_address: 81920, size: 512, characteristics: 1107296320,
+               flags: ["IMAGE_SCN_CNT_INITIALIZED_DATA", "IMAGE_SCN_MEM_DISCARDABLE", "IMAGE_SCN_MEM_READ"]}
+        imports:
+          equals:
+            - dll: "KERNEL32.dll"
+              symbols: [{"name": "DeleteCriticalSection", ordinal: null}, {"name": "EnterCriticalSection", ordinal: null}, {"name": "FreeLibrary", ordinal: null}, {"name": "GetLastError", ordinal: null}, {"name": "GetModuleHandleA", ordinal: null}, {"name": "GetProcAddress", ordinal: null}, {"name": "GetTickCount", ordinal: null}, {"name": "InitializeCriticalSection", ordinal: null}, {"name": "LeaveCriticalSection", ordinal: null}, {"name": "LoadLibraryA", ordinal: null}, {"name": "Sleep", ordinal: null}, {"name": "TlsGetValue", ordinal: null}, {"name": "VirtualProtect", ordinal: null}, {"name": "VirtualQuery", ordinal: null}]
+            - dll: "api-ms-win-crt-heap-l1-1-0.dll"
+              symbols: [{"name": "calloc", ordinal: null}, {"name": "free", ordinal: null}]
+            - dll: "api-ms-win-crt-private-l1-1-0.dll"
+              symbols: [{"name": "memcpy", ordinal: null}]
+            - dll: "api-ms-win-crt-runtime-l1-1-0.dll"
+              symbols: [{"name": "_execute_onexit_table", ordinal: null}, {"name": "_exit", ordinal: null}, {"name": "_initialize_onexit_table", ordinal: null}, {"name": "_initterm", ordinal: null}, {"name": "_initterm_e", ordinal: null}, {"name": "_register_onexit_function", ordinal: null}, {"name": "abort", ordinal: null}]
+            - dll: "api-ms-win-crt-stdio-l1-1-0.dll"
+              symbols: [{"name": "__acrt_iob_func", ordinal: null}, {"name": "__stdio_common_vfprintf", ordinal: null}]
+            - dll: "api-ms-win-crt-string-l1-1-0.dll"
+              symbols: [{"name": "strlen", ordinal: null}, {"name": "strncmp", ordinal: null}]
 
-  - name: секции нормализованы (имя без \x00, числа — числами)
-    env: { PEFILE_BIN: "mock_pefile.py" }
-    input: { file: "plugin.yaml" }
+  - name: "РЕАЛ: имя архитектуры и флаги секции — из словарей донора, а не из своей таблицы"
+    # Раньше обёртка держала свою таблицу MACHINE_NAMES из 10 кодов, тогда как
+    # pefile 2024.8.26 знает 35 (25 прежняя таблица назвала «0x%04x» — это
+    # была вторая правда). Здесь проверяются конкретные имена, которые может
+    # выдать только словарь донора, и раскладка битовой маски секции.
+    input: { file: "fixtures/sample.dll" }
+    timeout: 60s
     expect:
       status: ok
       output:
-        sections: { contains: { name: ".text", virtual_address: 4096, size: 1048576, characteristics: 2164261632 } }
-        imports: { contains: { dll: "USER32.dll", symbols: ["MessageBoxW"] } }
+        machine: "IMAGE_FILE_MACHINE_AMD64"
+        # contains по массиву означает «содержит ЭЛЕМЕНТ», поэтому здесь
+        # значение — один объект секции, а не список из одного объекта.
+        sections:
+          contains: {name: ".text", virtual_address: 4096, size: 7168, characteristics: 1610612768,
+               flags: ["IMAGE_SCN_CNT_CODE", "IMAGE_SCN_MEM_EXECUTE", "IMAGE_SCN_MEM_READ"]}
 
-  - name: неизвестная архитектура → 0x-код, пустые импорты
-    env: { PEFILE_BIN: "mock_pefile.py", MOCK_ALT: "1" }
-    input: { file: "main.py" }
+  - name: "РЕАЛ: имя из строковой таблицы COFF отдаётся как ссылка «/N», не выдумывается"
+    # В COFF длинное имя секции лежит в отдельной строковой таблице, а в
+    # таблице секций стоит ссылка «/смещение». Разыменовать её — значит
+    # придумать имя, которого в файле нет, поэтому обёртка отдаёт ссылку.
+    input: { file: "fixtures/sample.dll" }
+    timeout: 60s
     expect:
       status: ok
       output:
-        machine: "0x0166"
-        count: 0
-        imports: []
+        section_count: 18
+        sections:
+          contains: {name: "/14", virtual_address: 53248, size: 512, characteristics: 1107296320,
+               flags: ["IMAGE_SCN_CNT_INITIALIZED_DATA", "IMAGE_SCN_MEM_DISCARDABLE", "IMAGE_SCN_MEM_READ"]}
 
-  - name: пустой file → доменная ошибка
-    env: { PEFILE_BIN: "mock_pefile.py" }
-    input: { file: "  " }
+  - name: "РЕАЛ: size — это SizeOfRawData (на диске), а не VirtualSize (в памяти)"
+    # У .bss в фикстуре VirtualSize = 512, а SizeOfRawData = 0: секция целиком
+    # в памяти и не занимает места в файле. Путать эти два поля — источник
+    # половины неверных отчётов о размере образа.
+    input: { file: "fixtures/sample.dll" }
+    timeout: 60s
     expect:
-      status: error
-      exit_code: 1
-      error: { code: empty_file, retryable: false }
+      status: ok
+      output:
+        sections:
+          contains: {name: ".bss", virtual_address: 32768, size: 0, characteristics: 3221225600,
+               flags: ["IMAGE_SCN_CNT_UNINITIALIZED_DATA", "IMAGE_SCN_MEM_READ", "IMAGE_SCN_MEM_WRITE"]}
 
-  - name: несуществующий файл → missing_file
-    env: { PEFILE_BIN: "mock_pefile.py" }
-    input: { file: "нет-такого.exe" }
-    expect:
-      status: error
-      exit_code: 1
-      error: { code: missing_file, retryable: false }
-
-  - name: файл не PE → доменная ошибка not_pe
-    env: { PEFILE_BIN: "mock_pefile.py", MOCK_NOT_PE: "1" }
-    input: { file: "main.py" }
+  - name: "РЕАЛ: обрезанный PE → доменная ошибка not_pe от настоящего донора"
+    # Настоящий pefile на первых 200 байтах отвечает
+    # PEFormatError('No Optional Header found, invalid PE32 or PE32+ file.')
+    # Этот кейс без мока: ветку формата проверяет донор, а не подделка.
+    input: { file: "fixtures/truncated.dll" }
+    timeout: 60s
     expect:
       status: error
       exit_code: 1
       error: { code: not_pe, retryable: false }
 
-  - name: битый PE → доменная ошибка bad_file
-    env: { PEFILE_BIN: "mock_pefile.py", MOCK_BAD_FILE: "1" }
-    input: { file: "main.py" }
+  - name: "РЕАЛ: обычный текст вместо PE → доменная ошибка not_pe"
+    input: { file: "fixtures/sample.c" }
+    timeout: 60s
     expect:
       status: error
       exit_code: 1
-      error: { code: bad_file, retryable: false }
+      error: { code: not_pe, retryable: false }
 
-  - name: pefile не установлен (бинарь переопределён на путь)
+  - name: "РЕАЛ: wall_timeout числом доезжает до обёртки"
+    input: { file: "fixtures/sample.dll", wall_timeout: 60 }
+    timeout: 90s
+    expect:
+      status: ok
+      output: { section_count: 18 }
+
+  - name: "РЕАЛ: пустой file → доменная ошибка, донор не запускался"
+    input: { file: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_file, retryable: false }
+
+  - name: "РЕАЛ: несуществующий файл → доменная ошибка"
+    input: { file: "/nonexistent/pefile-sample.dll" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: missing_file, retryable: false }
+
+  - name: "РЕАЛ: каталог вместо файла → missing_file, а не bad_file"
+    # Проверка в обёртке: без неё «это не файл» и «файл есть, но он сломан»
+    # были бы одним кодом, и оператор искал бы не то.
+    input: { file: "fixtures" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: missing_file, retryable: false }
+
+  - name: "РЕАЛ: битый JSON входа → платформенная ошибка"
+    input_raw: "{не json"
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_input }
+
+  - name: "РЕАЛ: wall_timeout не число → платформенная ошибка"
+    input: { file: "fixtures/sample.dll", wall_timeout: "не число" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: "РЕАЛ: wall_timeout = 0 → платформенная ошибка, а не «отработал 300 секунд»"
+    # Раньше стояло `data.get("wall_timeout") or DEFAULT_WALL`: переданный 0
+    # молча превращался в 300, и ран, просивший «без времени», получал ok после
+    # полного лимита. Плюс неположительный timeout ушёл бы в subprocess и
+    # вернул TimeoutExpired — «retryable» про вход, который повтором не чинится.
+    input: { file: "fixtures/sample.dll", wall_timeout: 0 }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: "РЕАЛ: wall_timeout = true → платформенная ошибка, а не «секунда»"
+    input: { file: "fixtures/sample.dll", wall_timeout: true }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  # ── 2. мок: ветки отказа, которые нельзя вызвать у настоящего донора ────
+  - name: "МОК: pefile не запустился (переопределён на путь)"
     env: { PEFILE_BIN: "/nonexistent/pefile-bin" }
-    input: { file: "main.py" }
+    input: { file: "fixtures/sample.dll" }
     expect:
       status: error
       exit_code: 1
       error: { code: pefile_not_installed, retryable: false }
 
-  - name: pefile не установлен (донор не импортируется)
-    env: { PEFILE_BIN: "mock_pefile.py", MOCK_NO_PE_MODULE: "1" }
-    input: { file: "main.py" }
+  - name: "МОК: pefile не запустился (имя из PATH)"
+    env: { PEFILE_BIN: "definitely_not_a_pefile_bin_xyz" }
+    input: { file: "fixtures/sample.dll" }
     expect:
       status: error
       exit_code: 1
       error: { code: pefile_not_installed }
 
-  - name: wall timeout → доменная, retryable
-    env: { PEFILE_BIN: "mock_pefile.py", MOCK_SLEEP: "3" }
-    input: { file: "main.py", wall_timeout: 1 }
+  - name: "МОК: пакет pefile не импортируется → тот же код, что и «не запустился»"
+    env: { PEFILE_BIN: "mock_pefile.py", MOCK_NO_MODULE: "1" }
+    input: { file: "fixtures/sample.dll" }
     expect:
       status: error
       exit_code: 1
-      error: { code: timeout, retryable: true }
+      error: { code: pefile_not_installed, retryable: false }
 
-  - name: сниппет без вывода → no_report
-    env: { PEFILE_BIN: "mock_pefile.py", MOCK_NO_REPORT: "1" }
-    input: { file: "main.py" }
-    expect:
-      status: error
-      exit_code: 1
-      error: { code: no_report, retryable: false }
-
-  - name: донор упал → tool_failed
+  - name: "МОК: донор упал → доменная ошибка tool_failed"
+    # Ненулевой код возврата — отказ, даже если stdout успел напечатать
+    # что-то похожее на репорт.
     env: { PEFILE_BIN: "mock_pefile.py", MOCK_FAIL: "1" }
-    input: { file: "main.py" }
+    input: { file: "fixtures/sample.dll" }
     expect:
       status: error
       exit_code: 1
       error: { code: tool_failed, retryable: false }
 
-  - name: битый JSON донора → платформенная ошибка
+  - name: "МОК: донор промолчал → no_report, а не «нулевой результат»"
+    env: { PEFILE_BIN: "mock_pefile.py", MOCK_NO_REPORT: "1" }
+    input: { file: "fixtures/sample.dll" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: "МОК: в stdout шум без JSON → no_report"
+    env: { PEFILE_BIN: "mock_pefile.py", MOCK_NO_JSON: "1" }
+    input: { file: "fixtures/sample.dll" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: "МОК: битый JSON → платформенная ошибка"
     env: { PEFILE_BIN: "mock_pefile.py", MOCK_BAD_REPORT: "1" }
-    input: { file: "main.py" }
+    input: { file: "fixtures/sample.dll" }
     expect:
       status: error
       exit_code: 2
-      error: { code: "platform:bad_report" }
+      error: { code: platform:bad_report }
 
-  - name: битый JSON входа → платформенная ошибка
-    env: { PEFILE_BIN: "mock_pefile.py" }
-    input_raw: "{не json"
+  - name: "МОК: валидный JSON, но не объект → платформенная ошибка"
+    env: { PEFILE_BIN: "mock_pefile.py", MOCK_NOT_OBJECT: "1" }
+    input: { file: "fixtures/sample.dll" }
     expect:
+      status: error
       exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: "МОК: репорт без parser_version → платформенная ошибка"
+    # Находки без указания версии парсера непригодны: неизвестно, каким набором
+    # правил получены секции и импорты. Пустой строкой это не подменяется.
+    env: { PEFILE_BIN: "mock_pefile.py", MOCK_NO_VERSION: "1" }
+    input: { file: "fixtures/sample.dll" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: "МОК: поля не того типа → платформенная ошибка, а не traceback"
+    # machine_id строкой и sections не массивом. Раньше int(...) на таком
+    # поднимал ValueError мимо всех проверок, и ядро получало exit 1 с
+    # code=plugin_error и без описания — по трассировке в stderr, которую
+    # человек может и не открыть.
+    env: { PEFILE_BIN: "mock_pefile.py", MOCK_BAD_TYPES: "1" }
+    input: { file: "fixtures/sample.dll" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: "МОК: wall timeout → доменная, retryable"
+    env: { PEFILE_BIN: "mock_pefile.py", MOCK_SLEEP: "3" }
+    input: { file: "fixtures/sample.dll", wall_timeout: 1 }
+    timeout: 20s
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: "МОК: прогресс в stdout перед репортом → репорт всё равно виден"
+    env: { PEFILE_BIN: "mock_pefile.py", MOCK_PROGRESS: "1" }
+    input: { file: "fixtures/sample.dll" }
+    expect:
+      status: ok
+      output:
+        parser_version: "2024.8.26"
+        machine: "IMAGE_FILE_MACHINE_AMD64"
+        import_dll_count: 2
+
+  - name: "МОК: импорт по номеру → ordinal заполнен, имя пустое (не «#17»)"
+    # Раньше обёртка превращала номер в строку "#17", то есть в имя, которого
+    # в файле нет. Теперь имя и номер — разные поля, и «импортировано по
+    # номеру» видно буквально.
+    env: { PEFILE_BIN: "mock_pefile.py", MOCK_ORDINALS: "1" }
+    input: { file: "fixtures/sample.dll" }
+    expect:
+      status: ok
+      output:
+        imports:
+          equals:
+            - dll: "USER32.dll"
+              symbols:
+                - {name: "", ordinal: 17}
+                - {name: "MessageBoxA", ordinal: null}
+
+  - name: "МОК: неизвестный код архитектуры → machine пустой, machine_id заполнен"
+    # «Эта версия pefile не знает такой код» и «код потерялся» должны
+    # отличаться: пустая machine при заполненном machine_id — это первое,
+    # нулевая machine_id при непустой — второе.
+    env: { PEFILE_BIN: "mock_pefile.py", MOCK_UNKNOWN_MACH: "1" }
+    input: { file: "fixtures/sample.dll" }
+    expect:
+      status: ok
+      output:
+        machine: ""
+        machine_id: 4660
+
+  - name: "МОК: донор отдаёт лишние поля (pdb_path, imphash, timestamp) → наружу не уходят"
+    # Мок кладёт в репорт то, чего в манифесте нет, и подменяет file чужим
+    # путём сборки. Ожидание проверяет и то, что известные поля разобрались
+    # верно, и то, что file остался тем, что дал оператор. Отсутствие
+    # pdb_path/imphash в выводе видно по распечатке репорта (см. README) —
+    # матчера «поля нет» у plugin.test.yaml нет.
+    env:
+      PEFILE_BIN: "mock_pefile.py"
+      MOCK_FILE: "C:\\build\\agent\\release\\other.dll"
+    input: { file: "fixtures/sample.dll" }
+    expect:
+      status: ok
+      output:
+        file: "fixtures/sample.dll"
+        machine: "IMAGE_FILE_MACHINE_AMD64"
+        section_count: 2
+        import_dll_count: 2
+
+  - name: "МОК: маркер not_pe от донора → доменная ошибка"
+    env: { PEFILE_BIN: "mock_pefile.py", MOCK_NOT_PE: "1" }
+    input: { file: "fixtures/sample.dll" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: not_pe, retryable: false }
+
+  - name: "МОК: маркер bad_file от донора → доменная ошибка"
+    env: { PEFILE_BIN: "mock_pefile.py", MOCK_BAD_FILE: "1" }
+    input: { file: "fixtures/sample.dll" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_file, retryable: false }

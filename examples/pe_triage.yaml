@@ -1,0 +1,50 @@
+format_version: "0.2"
+
+# Пример пресета на плагине с ВНЕШНИМ донором: community/pefile.
+#
+# Плагин запускает настоящий `pefile` (пин pefile==2024.8.26 в
+# runtime.requires), поэтому пример — это проверка всей цепочки поставки:
+# манифест с типизированными портами → обёртка → конформные тесты, которые
+# реально запускают инструмент по бинарной фикстуре → пайплайн, который его
+# зовёт.
+#
+# ВНИМАНИЕ про пути: cwd subprocess плагина = ЕГО директория (PROTOCOL §1).
+# "fixtures/sample.dll" здесь — относительно plugins/community/pefile/, а не
+# корня репо. Для своего проекта подставьте абсолютный путь.
+#
+# network: deny — плагин объявляет network: [] и сеть не трогает: разбор идёт
+# по локальному файлу (проверено запуском настоящего pefile с заблокированными
+# socket.connect/connect_ex/create_connection/getaddrinfo/gethostbyname).
+#
+# Запуск:  ./wedra run examples/pe_triage.yaml --yes
+# Плагин из локальной правки не входит во встроенный allow-list (доверие — по
+# хэшу содержимого), поэтому ран откажет и назовёт ожидаемую запись вида
+# pefile@sha256:... — её и вносят в конфиг оператора (WEDRA_TRUST_CONFIG).
+
+pipeline:
+  name: pe_triage
+  network: deny
+  input:
+    file: "fixtures/sample.dll"
+
+  steps:
+    - id: parse
+      plugin: plugins/community/pefile
+      bind: { file: input.file }
+      on_error: stop
+      timeout: 60s            # холодный старт донора (импорт pefile) — секунды
+
+    # Гейт смотрит на то, ради чего плагин и запускался: архитектура образа,
+    # сколько в нём секций и сколько DLL он тянет. Ни отладочной информации,
+    # ни PDB-пути, ни imphash в выводе нет, поэтому светить это в форме
+    # безопасно.
+    - id: review
+      plugin: core/human_gate
+      form:
+        - { field: steps.parse.machine, editable: false }
+        - { field: steps.parse.machine_id, editable: false }
+        - { field: steps.parse.section_count, editable: false }
+        - { field: steps.parse.import_dll_count, editable: false }
+        - { field: steps.parse.imports, editable: false }
+      actions: [accept, reject]
+      on_reject: stop

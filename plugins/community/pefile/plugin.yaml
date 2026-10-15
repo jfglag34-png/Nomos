@@ -1,37 +1,75 @@
 id: pefile
-version: 0.1.0
+version: 0.2.0
 platform_api: "^0.1"
 description: >
-  pefile (erocarrera/pefile) — разбор PE-файлов: архитектура, секции и
-  импортируемые DLL с символами. У донора нет CLI, поэтому плагин запускает
-  тот же интерпретатор с фиксированным сниппетом (-c), который импортирует
-  pefile и печатает JSON (паттерн C). Библиотека ставится отдельно:
-  pip install pefile.
+  pefile (erocarrera/pefile) — разбор PE-файлов: архитектура образа, таблица
+  секций и каталог импортов (DLL и символы, включая импорт по номеру).
+  Обёртка запускает `python3 -c <сниппет>`, который импортирует pefile и
+  печатает один JSON в stdout: у pefile нет ни CLI, ни консольного скрипта,
+  поэтому искать бинарь в PATH было бы поиском того, чего нет.
+  Наружу не отдаются: время сборки (FileHeader.TimeDateStamp), PDB-путь и
+  отладочная информация (IMAGE_DIRECTORY_ENTRY_DEBUG), imphash, остальные
+  каталоги PE. Пин: pip install pefile==2024.8.26
 author: "community · wedra showcase (reverse engineering)"
 
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; пакет pefile — отдельно (pip install pefile)
+  # Пин донора в runtime.requires, а не пометка «поставьте отдельно»: без него
+  # pip-пакет никто не ставил, плагин числился готовым в UI и падал на первом
+  # же запуске.
+  requires: ["pefile==2024.8.26"]
 
 input:
+  # Путь к PE-файлу. Проверяет обёртка, а не донор: иначе «нет такого файла»
+  # и «файл нечитаем» были бы одним и тем же словом.
   file:
     from: input.file
     type: string
-    format: file_ref # путь к PE-файлу (.exe/.dll/.sys); должен существовать
+    format: file_ref
   wall_timeout:
     from: input.wall_timeout
     type: number
     optional: true      # общий лимит рана, секунды (default 300)
 
 output:
-  file:     { type: string }
-  machine:  { type: string }
+  # Строка, которую дал оператор. Абсолютная форма ничего бы не добавила, а
+  # привязала бы вывод и журнал рана к машине.
+  file:  { type: string }
+  # Имя архитектуры ИЗ СЛОВАРЯ ДОНОРА (pefile.MACHINE_TYPE, 35 кодов).
+  # Пустая строка означает «эта версия pefile не знает такой код»;
+  # machine_id при этом заполнен, поэтому «не знаю» и «нечем» не путаются.
+  # Прежняя таблица обёртки знала 10 кодов и 25 называла «0x%04x».
+  machine:      { type: string }
+  machine_id:   { type: number }
+  # Секция = {name, virtual_address, size, characteristics, flags}.
+  #   name            — обрезано по NUL. Значения вида "/4" — ссылка на
+  #                     строковую таблицу COFF, а не имя; обёртка отдаёт
+  #                     ссылку как есть и не разыменовывает её.
+  #   size            — SizeOfRawData, размер НА ДИСКЕ, не VirtualSize
+  #                     (у .bss в фикстуре 0 при 512 байтах в памяти).
+  #   characteristics — битмаска как в файле.
+  #   flags           — те же биты в именах ИЗ СЛОВАРЯ ДОНОРА
+  #                     (pefile.SECTION_CHARACTERISTICS), только однобитовые
+  #                     записи: у словаря есть и многобитовые маски
+  #                     выравнивания, и по ним «совпало бы» несколько имён.
   sections: { type: array }
-  imports:  { type: array }
-  count:    { type: number }
+  # Импорт = {dll, symbols:[{name, ordinal}]}. ordinal — null, когда символ
+  # импортирован по имени; name пуст, когда по номеру. Раньше обёртка писала
+  # вместо этого строку "#17", то есть выдумывала тип, которого в файле нет.
+  imports: { type: array }
+  section_count:     { type: number }
+  import_dll_count:  { type: number }
+  # Версия библиотеки-донора (pefile.__version__). Без неё «импортов нет»
+  # неотличимо от «эта версия не разобрала каталог импортов».
+  parser_version: { type: string, format: text }
 
 permissions:
-  network: []
-  filesystem: read      # читает только указанный пользователем PE-файл
+  network: []            # разбор локальных байтов, сеть не нужна: проверено
+                        # запуском настоящего pefile с заблокированными
+                        # socket.connect/connect_ex/create_connection/
+                        # getaddrinfo/gethostbyname (контроль блокировки в том
+                        # же прогоне) — тот же exit 0 и те же 18 секций.
+                        # Настоящей сети у донора нет: он читает файл.
+  filesystem: read       # читает только указанный пользователем файл
   secrets: []
