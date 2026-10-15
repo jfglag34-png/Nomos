@@ -318,7 +318,7 @@ tests:
       exit_code: 2
       error: { code: platform:bad_input, retryable: false }
 
-# Полезные матчеры: { present: true } { contains: "..." } { type: "array" }
+# Полезные матчеры: { present: true } { absent: true } { contains: "..." } { type: "array" }
 # env: { KEY: "value" } — переменные на время теста (секреты, mock-режимы)
 # input_raw: "{oops"   — сырой stdin, для тестов битого JSON (ожидайте exit 2)
 `
@@ -417,7 +417,7 @@ tests:
     expect:
       exit_code: 2            # виновата вызывающая сторона, не домен
 
-# Полезные матчеры: { present: true } { contains: "..." } { type: "array" }
+# Полезные матчеры: { present: true } { absent: true } { contains: "..." } { type: "array" }
 # env: { KEY: "value" } — переменные на время теста (секреты, mock-режимы)
 # input_raw: "{oops"   — сырой stdin, для тестов битого JSON (ожидайте exit 2)
 `

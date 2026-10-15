@@ -492,6 +492,143 @@ func TestDoctorStripsGarbageFromDonorName(t *testing.T) {
 	}
 }
 
+// Пин `package==version` в описании — это имя пакета плюс версия, а не
+// «непонятное имя». community/pefile и community/detect_secrets держат пин
+// прямо в описании («Пин: pip install pefile==2024.8.26»), и раньше такой хвост
+// ронял проверку имени: плагин попадал в unverified_donors с надписью «наличие
+// инструмента НЕ проверено», хотя пакет объявлен в runtime.requires и doctor
+// его прекрасно видит.
+func TestDoctorReadsPinnedDonorName(t *testing.T) {
+	cases := []struct {
+		desc string
+		want string
+	}{
+		{"Пин: pip install pefile==2024.8.26", "pefile"},
+		{"Пин: pip install detect-secrets==1.5.0", "detect-secrets"},
+		{"Ставится: pip install 'exifread==3.5.1'.", "exifread"},
+		{"Ставится: pip install maigret==0.6.6, если нет.", "maigret"},
+		{"Ставится: pip install holehe==1.61.", "holehe"},
+	}
+	for _, c := range cases {
+		got, ok := donorFromDescription(c.desc)
+		if !ok {
+			t.Errorf("donorFromDescription(%q) не нашёл донора: версия в пине — это не мусор", c.desc)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("donorFromDescription(%q) = %q, ждали %q", c.desc, got, c.want)
+		}
+	}
+}
+
+// Обратная сторона строгости: отбрасывание `==…` не должно превращаться в
+// «обрежем всё до равных знаков и назовём это именем». Всё, что не является
+// пинoм вида `имя==версия`, обязано быть отвергнуто целиком — включая случаи,
+// где левая часть сама по себе не имя пакета (VCS-цель, путь, флаг).
+func TestDoctorRejectsNonPinsAroundEquals(t *testing.T) {
+	cases := []struct {
+		desc string
+		why  string
+	}{
+		{"Ставится: pip install pefile==", "пин без версии"},
+		{"Ставится: pip install ==1.0", "пин без имени"},
+		{"Ставится: pip install pefile==latest", "версия не начинается с цифры"},
+		{"Ставится: pip install pefile==1.0=2", "вторые равные знаки"},
+		{"Ставится: pip install 2024.8.26==1.0", "слева версия, а не имя"},
+		{"Ставится: pip install git+https://github.com/r0oth3x49/ghauri.git==1.0", "VCS-цель с пином"},
+		{"Ставится: pip install -r requirements.txt==1.0", "флаг с пином"},
+		{"Ставится: pip install /opt/tools/pefile==1.0", "путь с пином"},
+		{"Ставится: pip install pefile[exe]==1.0", "extras слева от пина"},
+	}
+	for _, c := range cases {
+		if got, ok := donorFromDescription(c.desc); ok {
+			t.Errorf("donorFromDescription(%q) = %q, ждали отказ (%s)", c.desc, got, c.why)
+		}
+	}
+}
+
+// Маркер окружения (`pkg==1.0;python_version<'3.9'`) режется ПРЕЖДЕ разбора
+// пина — правилом про запятую/двоеточие/точку с запятой, которое существовало
+// и раньше. Имя оттуда всё равно верное, поэтому это не «мусор проскочил», а
+// отдельный, более ранний разбор: проверяем, чтобы правка пина его не сломала.
+func TestDoctorPinWithEnvironmentMarkerKeepsName(t *testing.T) {
+	got, ok := donorFromDescription("Ставится: pip install we-dr-marker==1.0;python_version<'3.9'")
+	if !ok {
+		t.Fatal("маркер окружения не должен оставлять плагин без донора")
+	}
+	if got != "we-dr-marker" {
+		t.Errorf("донор = %q, ждали %q", got, "we-dr-marker")
+	}
+}
+
+// Валидатор имени пакета остаётся СТРОГИМ: он не должен начать принимать
+// `name==version` — иначе чинить пришлось бы в нём, и тогда вниз по коду
+// поехало бы неразобранное `pefile==2024.8.26` (в PATH искать нечего, в
+// сравнение с requires не попало бы). Разбор пина — отдельный шаг.
+func TestDoctorValidatorStillRejectsPin(t *testing.T) {
+	for _, s := range []string{"pefile==2024.8.26", "detect-secrets==1.5.0", "pefile==", "==1.0", "pkg==1.0=2"} {
+		if validPackageName(s) {
+			t.Errorf("validPackageName(%q) = true, а это не имя пакета", s)
+		}
+	}
+}
+
+// Сквозной регресс на исходный симптом: плагин с пином в описании, тем же
+// пином в runtime.requires и упоминанием установки в README обязан быть
+// ПРОВЕРЕН, а не попасть в unverified_donors. Раньше он попадал именно туда:
+// имя `pefile==2024.8.26` не проходило проверку, донор становился «неизвестным».
+func TestDoctorPinnedDonorIsNotUnverified(t *testing.T) {
+	const pkg = "wedra_absent_pinned_donor"
+	root := doctorFixture(t, map[string]string{
+		"pinned/plugin.yaml": doctorManifestText("pinned",
+			"Плагин. Пин: pip install "+pkg+"==1.2.3", []string{pkg + "==1.2.3"}),
+		"pinned/main.py":   "import json\nprint(json.dumps({'status': 'ok', 'output': {'value': 'x'}}))\n",
+		"pinned/README.md": "Установка донора:\n\n    pip install " + pkg + "==1.2.3\n",
+	})
+	rep := runDoctor(root)
+	p := doctorOne(t, root)
+
+	if p.Donor != pkg {
+		t.Errorf("donor = %q, ждали %q: версия в пине — это не часть имени", p.Donor, pkg)
+	}
+	if p.DonorKind != doctorDonorSameAsRequires {
+		t.Errorf("donor_kind = %q, ждали %q", p.DonorKind, doctorDonorSameAsRequires)
+	}
+	for _, id := range rep.UnverifiedDonors {
+		if id == "pinned" {
+			t.Errorf("pinned попал в unverified_donors: %v — донор проверен", rep.UnverifiedDonors)
+		}
+	}
+}
+
+func TestDoctorPinParsingTable(t *testing.T) {
+	cases := []struct {
+		in     string
+		want   string
+		wantOK bool
+	}{
+		{"pefile==2024.8.26", "pefile", true},
+		{"detect-secrets==1.5.0", "detect-secrets", true},
+		{"holehe==1.61", "holehe", true},
+		{"pkg==1.0.*", "pkg", true},
+		{"pkg==1.0+local", "pkg", true},
+		{"pkg==1.0rc1", "pkg", true},
+		{"pkg", "", false},
+		{"pefile==", "", false},
+		{"==1.0", "", false},
+		{"pkg==latest", "", false},
+		{"pkg==1.0;python_version<'3.9'", "", false},
+		{"git+https://github.com/x/y.git==1.0", "", false},
+		{"2024.8.26==1.0", "", false},
+	}
+	for _, c := range cases {
+		got, ok := packageNameFromPin(c.in)
+		if ok != c.wantOK || (ok && got != c.want) {
+			t.Errorf("packageNameFromPin(%q) = (%q, %v), ждали (%q, %v)", c.in, got, ok, c.want, c.wantOK)
+		}
+	}
+}
+
 // Проверка на ВСЕХ манифестах репозитория: в команде установки не должно
 // остаться ни одного символа, который в имени пакета не бывает. Это ровно
 // дефект 3, только в масштабе витрины, а не на двух примерах.

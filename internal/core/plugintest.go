@@ -52,9 +52,10 @@ type PluginTestFile struct {
 //
 //	value: 42                    — точное (глубокое) равенство
 //	value: { present: true }     — поле существует
+//	value: { absent: true }      — поле НЕ уходит наружу (см. absentWanted/leaksOut)
 //	value: { contains: "foo" }   — строка содержит подстроку; МАССИВ содержит элемент (любой тип)
 //	value: { type: "array" }     — тип (boolean|number|string|array|object)
-var matcherKeys = map[string]bool{"present": true, "contains": true, "type": true, "equals": true}
+var matcherKeys = map[string]bool{"present": true, "absent": true, "contains": true, "type": true, "equals": true}
 
 type CaseResult struct {
 	Name     string
@@ -80,6 +81,41 @@ func isMatcherMap(m map[string]interface{}) bool {
 		}
 	}
 	return true
+}
+
+// absentWanted — просят ли матчером «этого поля быть не должно».
+//
+// Только `absent: true`. `absent: false` — то же, что отсутствие просьбы
+// (как `present: false` сегодня): поле проверяется как обычно, то есть на
+// наличие. Отдельной проверки значения тут быть не может — матчер про поле,
+// которого может не быть.
+func absentWanted(want interface{}) bool {
+	m, ok := want.(map[string]interface{})
+	if !ok || !isMatcherMap(m) {
+		return false
+	}
+	b, isBool := m["absent"].(bool)
+	return isBool && b
+}
+
+// leaksOut — уходит ли поле наружу, то есть попадает ли оно в то, что ран
+// положит в контекст шага.
+//
+// «Наружу» — это выход EnforceOutput, а не сырой stdout плагина: незадекларированное
+// поле ядро отбрасывает (runner.go, MCP и conformance зовут его одинаково), и
+// проверять надо именно эту границу. Плагин, отдающий лишние поля, — это норма
+// (фикстура leaker), и ловить его должен контракт, а не тест автора.
+//
+// На не-ok ответе EnforceOutput не зовётся вовсе: наружу не уходит ничего, и
+// поле утечь не может. Если же контракт нарушен, clean пуст, а кейс и так
+// красный — тогда судим строго, по сырому ответу плагина.
+func leaksOut(enforced map[string]interface{}, raw map[string]interface{}, key string) bool {
+	if enforced != nil {
+		_, ok := enforced[key]
+		return ok
+	}
+	_, ok := raw[key]
+	return ok
 }
 
 // matchContains: строка — подстрока; массив — вхождение элемента (глубокое сравнение).
@@ -114,6 +150,7 @@ func matchValue(path string, want, got interface{}, fail func(string, ...interfa
 		for k, v := range m {
 			switch k {
 			case "present": // наличие ключа уже проверено вызывающим
+			case "absent": // проверяет runCase: нужно знать, УШЁЛ ли ключ наружу
 			case "contains":
 				matchContains(path, v, got, fail)
 			case "type":
@@ -191,11 +228,14 @@ func runCase(ctx stdctx.Context, m *Manifest, tc PluginTestCase) CaseResult {
 		}
 	}
 
-	// enforce контракта на успешных ответах — то, что сделает ядро в ране
+	// enforce контракта на успешных ответах — то, что сделает ядро в ране.
+	// clean сохраняем: по нему судим, что реально уходит наружу (матчер absent).
+	var enforced map[string]interface{}
 	if res.OK() {
-		if _, dropped, cvErr := EnforceOutput(m, res.Output); cvErr != nil {
+		if clean, dropped, cvErr := EnforceOutput(m, res.Output); cvErr != nil {
 			fail("контракт: %v", cvErr)
 		} else {
+			enforced = clean
 			for _, d := range dropped {
 				warn("незадекларированное поле отброшено: %s", d)
 			}
@@ -217,6 +257,15 @@ func runCase(ctx stdctx.Context, m *Manifest, tc PluginTestCase) CaseResult {
 	}
 
 	for key, wantVal := range exp.Output {
+		// `absent` — единственный матчер, которому поле может быть не нужно:
+		// без него «плагин не отдал наружу лишнего» проверялось только глазами
+		// по распечатке отчёта, а не зелёным тестом.
+		if absentWanted(wantVal) {
+			if leaksOut(enforced, res.Output, key) {
+				fail("output.%s уходит наружу, а ожидалось, что не уйдёт", key)
+			}
+			continue
+		}
 		got, ok := res.Output[key]
 		if !ok {
 			fail("output.%s отсутствует", key)

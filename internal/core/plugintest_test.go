@@ -131,6 +131,90 @@ func TestPluginTestDetectsFailure(t *testing.T) {
 	}
 }
 
+// absent — матчер «поля не должно быть». Разбирается не в matchValue (у него
+// уже есть значение), а в runCase, где видно, что вообще ушло наружу.
+func TestAbsentWanted(t *testing.T) {
+	cases := []struct {
+		want interface{}
+		ok   bool
+	}{
+		{map[string]interface{}{"absent": true}, true},
+		{map[string]interface{}{"absent": false}, false},
+		{map[string]interface{}{"present": true}, false},
+		{map[string]interface{}{"contains": "x"}, false},
+		{nil, false},
+		{42.0, false},
+		{"absent", false},
+		// карта с неизвестным ключом — не матчер, а обычное значение
+		{map[string]interface{}{"absent": true, "что-то": 1}, false},
+	}
+	for _, c := range cases {
+		if got := absentWanted(c.want); got != c.ok {
+			t.Errorf("absentWanted(%#v) = %v, ждали %v", c.want, got, c.ok)
+		}
+	}
+}
+
+// Кейс из жизни: плагин отдаёт лишние поля (фикстура leaker отдаёт незадекларированный
+// junk), ядро их отбрасывает — и «наружу не уходит» проверяется зелёным тестом,
+// а не глазами по распечатке. Именно этим раньше проверялось «донор не отдал
+// pdb_path», и это было без машинной проверки.
+func TestPluginTestAbsentPassesWhenFieldDroppedByContract(t *testing.T) {
+	requirePython(t)
+	spec := "tests:\n  - name: лишние поля не уходят наружу\n    expect:\n" +
+		"      status: ok\n      output:\n        value: \"x\"\n        junk: { absent: true }\n"
+	specPath := filepath.Join(t.TempDir(), "absent.test.yaml")
+	if err := os.WriteFile(specPath, []byte(spec), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	passed, failed, err := RunPluginTests("testdata/plugins/leaker", specPath, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failed != 0 || passed != 1 {
+		t.Fatalf("отброшенное контрактом поле не должно считаться утечкой: passed=%d failed=%d", passed, failed)
+	}
+}
+
+// Обратная сторона: absent — не «проверять нечего». Объявленное в манифесте поле
+// уходит наружу, и `absent: true` на нём обязан давать провал, иначе матчер
+// был бы зелёной лампочкой на любую формулировку.
+func TestPluginTestAbsentFailsWhenFieldActuallyLeaves(t *testing.T) {
+	requirePython(t)
+	spec := "tests:\n  - name: объявленное поле уходит наружу\n    input: { value: hi }\n" +
+		"    expect:\n      status: ok\n      output:\n        value: { absent: true }\n"
+	specPath := filepath.Join(t.TempDir(), "leak.test.yaml")
+	if err := os.WriteFile(specPath, []byte(spec), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	passed, failed, err := RunPluginTests("testdata/plugins/echo_ok", specPath, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if passed != 0 || failed != 1 {
+		t.Fatalf("поле, уходящее наружу, обязано ломать absent: passed=%d failed=%d", passed, failed)
+	}
+}
+
+// Плагин, который вообще не отдаёт поля, — тоже случай «наружу не уходит»:
+// absent не должен требовать, чтобы поле хоть где-то мелькнуло.
+func TestPluginTestAbsentOnNeverReturnedField(t *testing.T) {
+	requirePython(t)
+	spec := "tests:\n  - name: плагин не отдавал pdb_path\n    input: { value: hi }\n" +
+		"    expect:\n      status: ok\n      output:\n        value: \"hi\"\n        pdb_path: { absent: true }\n"
+	specPath := filepath.Join(t.TempDir(), "pdb.test.yaml")
+	if err := os.WriteFile(specPath, []byte(spec), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	passed, failed, err := RunPluginTests("testdata/plugins/echo_ok", specPath, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failed != 0 || passed != 1 {
+		t.Fatalf("отсутствующее поле должно проходить absent: passed=%d failed=%d", passed, failed)
+	}
+}
+
 func TestPluginTestRejectsUnknownFields(t *testing.T) {
 	spec := "tests:\n  - name: typo\n    input: { value: hi }\n    expect: { status: ok }\n    unexpected: true\n"
 	specPath := filepath.Join(t.TempDir(), "unknown.test.yaml")

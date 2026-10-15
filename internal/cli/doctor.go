@@ -554,6 +554,20 @@ func donorFromDescription(desc string) (string, bool) {
 	if name == "" {
 		return "", false
 	}
+	// Пин `package==version` — единственный «хвост», который остаётся в
+	// описании уже ПОСЛЕ чистки мусора выше: «Пин: pip install pefile==2024.8.26».
+	// Имя пакета тут — то, что до `==`, и разбирать это надо ДО проверки
+	// validPackageName: иначе плагин с честным пином (community/pefile,
+	// community/detect_secrets) объявляется «донор не проверен» и попадает в
+	// unverified_donors, хотя проверять тут нечего — пакет объявлен в
+	// runtime.requires и виден среди requires.
+	if strings.Contains(name, "==") {
+		unpinned, ok := packageNameFromPin(name)
+		if !ok {
+			return "", false
+		}
+		name = unpinned
+	}
 	// `-r requirements.txt`, `--upgrade X` и VCS-цели (`git+https://…`,
 	// `https://…tar.gz`) пакетом не являются: у них нет имени, по которому
 	// можно проверить наличие в PATH, а подставленное вместо них имя дало бы
@@ -679,6 +693,35 @@ func donorInPath(candidates []string) (found bool, foundName string) {
 		}
 	}
 	return false, ""
+}
+
+// pinVersionRe — версия в пине `package==version`.
+//
+// Знак цифры на первом месте отсекает мусор: версия начинается с цифры, а
+// «1.0;python_version<"3.9"» (маркер окружения) или «1.0=y» под неё не
+// подходят — такой пин не разбирается и донор остаётся непроверенным.
+var pinVersionRe = regexp.MustCompile(`^[0-9][0-9A-Za-z.*+!-]*$`)
+
+// packageNameFromPin — имя пакета из строки вида `package==version`.
+//
+// Строгая сторона: отбрасывается только `==` + версия, и только если с левой
+// стороны САМОСТОЯТЕЛЬНО валидное имя пакета. Обрезание «всё до равных знаков»
+// было бы ровно тем багом, который здесь и чинится. Мусор вроде `vt-py):` или
+// обратной кавычки в `webanalyze` равных знаков не содержит и ловится другими
+// правилами, но `git+https://…==1.0` обрезался бы до `git+https://…` и больше
+// не отсекался бы префиксом VCS — то есть враньё просто переехало бы на другой
+// адрес. Поэтому несовпавшая строка отвергается целиком: лучше «донор НЕ
+// проверен», чем выдуманное имя.
+func packageNameFromPin(s string) (string, bool) {
+	i := strings.Index(s, "==")
+	if i < 0 {
+		return s, false
+	}
+	name, version := s[:i], s[i+2:]
+	if !validPackageName(name) || !pinVersionRe.MatchString(version) {
+		return "", false
+	}
+	return name, true
 }
 
 // requirementName — имя пакета из спецификации `package==version`.
