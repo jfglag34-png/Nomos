@@ -24,6 +24,21 @@ package main
 // Генератор читает их через `git archive` — операция без состояния и без
 // сети, поэтому один и тот же пин даёт один и тот же хэш на любой машине.
 //
+// Записи сгруппированы по пину, и на коммит делается ОДИН проход распаковки,
+// после чего хэш считается для всех записей этого коммита. Это не «почти тот
+// же» расчёт, а буквально тот же: разворачиваемый tar по пину один и тот же,
+// распаковка детерминирована (права намеренно не восстанавливаются, symlink
+// пропускаются в обоих режимах), а ContentDigest — функция ровно от байтов
+// поддерева плагина, от путей внутри него и от их сортировки. Ни размер
+// развёрнутого дерева, ни число записей в группе в эту функцию не входят, так
+// что 99 развёрток и 11 дают побайтово один и тот же trustseed_gen.go.
+//
+// Без группировки на каждую из 99 записей приходились свой `git archive` всего
+// дерева (8 МБ, ~860 файлов) и своя распаковка — при том, что уникальных
+// пинов всего 11. Прогон занимал минуты и рядом с пакетами тестов выглядел
+// зависшим. Теперь распаковок столько, сколько уникальных пинов, а по каждому
+// пину печатается прогресс.
+//
 // Что НЕ попадает в seed:
 //   - тестовые фикстуры (internal/core/testdata, conformance/fixtures) — это не
 //     плагины продукта, и их доверие выдаётся явно в тестах;
@@ -43,6 +58,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/wykserdex/wedra/internal/plugin"
 	"github.com/wykserdex/wedra/internal/registry"
@@ -71,27 +87,51 @@ func main() {
 	defer os.RemoveAll(tmp)
 
 	seeds := map[string][]string{}
+
+	// Записи с одним пином разворачиваются вместе: развёртка — это функция от
+	// пина, а не от записи, поэтому плагины одного коммита берут хэш из одного
+	// развёрнутого дерева (см. обоснование в шапке файла).
+	byPin := map[string][]pinEntry{}
+	var pins []string
 	for _, name := range names {
 		entry, _ := reg.GetPlugin(name)
 		if err := registry.ValidateEntry(entry, true); err != nil {
 			fail("запись %s: %v", name, err)
 		}
-		ref := entry.Commit
-		if ref == "" {
+		if entry.Commit == "" {
 			// Локальный source без пина: доверенного выпуска не существует, и
 			// придумывать его нельзя. Пропускаем молча — запись без commit
 			// ValidateEntry выше уже отверг для удалённых source.
 			continue
 		}
-		dir := filepath.Join(tmp, name)
-		if err := extractAt(*repo, ref, dir); err != nil {
-			fail("развернуть %s@%s: %v", name, ref, err)
+		if _, seen := byPin[entry.Commit]; !seen {
+			pins = append(pins, entry.Commit)
 		}
-		digest, err := plugin.ContentDigest(filepath.Join(dir, filepath.FromSlash(entry.Path)))
-		if err != nil {
-			fail("хеш %s@%s (%s): %v", name, ref, entry.Path, err)
+		byPin[entry.Commit] = append(byPin[entry.Commit], pinEntry{name: name, path: entry.Path})
+	}
+	sort.Strings(pins)
+
+	started := time.Now()
+	for i, pin := range pins {
+		group := byPin[pin]
+		dir := filepath.Join(tmp, pin)
+		pinStart := time.Now()
+		if err := extractAt(*repo, pin, pluginPaths(group), dir); err != nil {
+			fail("развернуть %s: %v", pin, err)
 		}
-		seeds[name] = append(seeds[name], digest)
+		fmt.Fprintf(os.Stderr, "пин %d/%d %s: развёрнуто, %d записей, %.1f с (всего %.1f с)\n",
+			i+1, len(pins), shortPin(pin), len(group), time.Since(pinStart).Seconds(), time.Since(started).Seconds())
+		for _, e := range group {
+			digest, err := plugin.ContentDigest(filepath.Join(dir, filepath.FromSlash(e.path)))
+			if err != nil {
+				fail("хеш %s@%s (%s): %v", e.name, pin, e.path, err)
+			}
+			seeds[e.name] = append(seeds[e.name], digest)
+		}
+		// Каталог коммита больше не нужен: следующий пин разворачивается в свой.
+		// Ошибку удаления глушим намеренно — это временный каталог, и падение
+		// из-за него уронило бы прогон, который отработал правильно.
+		_ = os.RemoveAll(dir)
 	}
 
 	var b strings.Builder
@@ -124,19 +164,77 @@ func main() {
 	fmt.Printf("%s: %d плагинов, %d хэшей\n", outPath, len(seeds), countHashes(seeds))
 }
 
-// extractAt — развернуть поддерево репозитория по пину в dst.
+// pinEntry — запись реестра, ждущая своего пина.
+type pinEntry struct {
+	name string
+	path string
+}
+
+// pluginPaths — поддеревья плагинов группы, без повторов.
+func pluginPaths(group []pinEntry) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, e := range group {
+		if p := strings.TrimSpace(e.path); p != "" && !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func shortPin(pin string) string {
+	if len(pin) > 12 {
+		return pin[:12]
+	}
+	return pin
+}
+
+// extractAt — развернуть в dst то, из чего считаются хэши записей пина pin.
 //
 // `git archive` вместо checkout: не трогает состояние рабочего копии вызывающей
 // машины, не требует сети и не зависит от настроек core.autocrlf — а значит,
 // хэш не «поплывёт» от того, где и как запустили генератор.
-func extractAt(repo, ref, dst string) error {
-	cmd := exec.Command("git", "-C", repo, "archive", "--format=tar", ref)
+//
+// paths — только поддеревья плагинов этой группы. Разворачивать всё дерево
+// ради хэшей, которые считаются по поддереву, было лишней работой: tar на всю
+// репозиторий это ~8 МБ и ~860 файлов, на группу плагинов — сотни КБ. На байты
+// поддеревья это не влияет (untar кладёт ровно те файлы, что лежат по пину в
+// этом поддереве), поэтому хэш остаётся тем же.
+//
+// Если paths не пуст, а `git archive` с ними не справляется (путь не найден на
+// этом пине, экзотический путь, который git не понимает как pathspec) —
+// разворачиваем всё дерево, как раньше. Это страховка, а не оптимизация:
+// определение «не нашлось» должно остаться прежним, то есть прийти от
+// ContentDigest на отсутствующем каталоге.
+func extractAt(repo, pin string, paths []string, dst string) error {
+	if len(paths) > 0 {
+		if err := archiveInto(repo, pin, paths, dst); err == nil {
+			return nil
+		}
+	}
+	return archiveInto(repo, pin, nil, dst)
+}
+
+// archiveInto — `git archive` пина (при непустых paths — только этих поддеревьев)
+// в dst. pathspec задан литерально (`:(literal)`), иначе путь вроде `a[1].py`
+// был бы шаблоном и тихо развернул бы чужое поддерево.
+func archiveInto(repo, pin string, paths []string, dst string) error {
+	args := []string{"-C", repo, "archive", "--format=tar", pin}
+	if len(paths) > 0 {
+		args = append(args, "--")
+		for _, p := range paths {
+			args = append(args, ":(literal)"+filepath.ToSlash(p))
+		}
+	}
+	cmd := exec.Command("git", args...)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("git archive %s: %v: %s", ref, err, strings.TrimSpace(stderr.String()))
+		return fmt.Errorf("git archive %s: %v: %s", shortPin(pin), err, strings.TrimSpace(stderr.String()))
 	}
 	return untar(bytes.NewReader(stdout.Bytes()), dst)
 }
