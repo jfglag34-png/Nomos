@@ -8,9 +8,15 @@ DNS-запроса. Строки пишутся в обратном порядк
 сортировку обязан сделать вызывающий код, как это делает настоящий altdns
 (remove_duplicates через set()).
 
+Моделирует ровно то, что делает настоящий донор на этом входе (сверено с
+py-altdns 1.0.2: 12 перестановок для www.example.com со словарём [dev, test],
+6 для [dev], 26 с -n, 1 для example.com), и НЕ проверяет, что донор ведёт себя
+так же — это делают кейсы без ALTDNS_BIN.
+
 Режимы env: MOCK_SLEEP=N (тест wall_timeout), MOCK_NO_REPORT=1 (нет файла -o),
 MOCK_FAIL=1 (ненулевой код выхода), MOCK_BAD_REPORT=1 (отчёт не в UTF-8),
-MOCK_EMPTY=1 (пустой файл -o).
+MOCK_EMPTY=1 (пустой файл -o), MOCK_MISSING_MODULE=1 (тот самый exit 1 и
+«No module named altdns», который даёт `python3 -m altdns` без пакета).
 """
 import os
 import sys
@@ -28,6 +34,13 @@ def opt(argv, flag):
 
 if os.environ.get("MOCK_SLEEP"):
     time.sleep(float(os.environ["MOCK_SLEEP"]))
+
+if os.environ.get("MOCK_MISSING_MODULE") == "1":
+    # Ровно то, что печатает `python3 -m altdns`, когда пакета нет:
+    # traceback в stderr и код 1. Обёртка обязана отличить это от «доносор упал».
+    print("Traceback (most recent call last):", file=sys.stderr)
+    print("  ModuleNotFoundError: No module named 'altdns'", file=sys.stderr)
+    sys.exit(1)
 
 argv = sys.argv[1:]
 in_path = opt(argv, "-i")

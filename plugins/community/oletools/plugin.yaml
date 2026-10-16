@@ -1,37 +1,64 @@
 id: oletools
-version: 0.1.0
+version: 0.2.0
 platform_api: "^0.1"
 description: >
-  oletools (decalage2/oletools) — извлечение и анализ макросов офисных
-  документов (VBA/XLM), обфускация и IOCs. Обёртка зовёт CLI `olevba -j -a
-  <file>`: машинный JSON-репорт идёт в stdout, ключи — macros[] (имя модуля,
-  поток OLE) и findings[] (AutoExec / Suspicious / IOC). `-a` отключает вывод
-  исходников макросов — в отчёт попадают только метаданные и анализ. Ставится
-  отдельно: pip install oletools.
+  oletools (decalage2/oletools) — анализ макросов офисного документа (VBA,
+  Excel 4.0/XLM): где лежат модули и что в них написано. Обёртка запускает
+  `python3 -m oletools.olevba -j -a <file>` и разбирает машинный JSON-репорт:
+  отдаёт тип файла от донора (OLE, OpenXML, Text, XML, MHTML, RTF, SLK),
+  список макросов (имя модуля, имя файла, поток OLE) и находки анализа
+  (AutoExec / Suspicious / IOC с ключевым словом и описанием из словарей
+  самого олеTools). `-a` гасит печать исходников, и код макроса наружу не
+  отдаётся: плагин разбирает документ, а не публикует его содержимое.
+  Пин: pip install oletools==0.60.2
 author: "community · wedra showcase (AppSec)"
 
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; пакет oletools — отдельно (pip install oletools)
+  # Пин донора в runtime.requires, а не пометка «поставьте отдельно»: без него
+  # pip-пакет никто не ставил, плагин числился готовым в UI и падал на первом
+  # же запуске. Требования донора (olefile, easygui) в lock не входят
+  # намеренно — lock по контракту валидатора содержит ровно объявленные пины,
+  # а их ставит pip вместе с depends.
+  requires: ["oletools==0.60.2"]
 
 input:
   file:
     from: input.file
     type: string
-    format: file_ref # путь к .doc/.docx/.xls/.xlsm/.ppt/... файлу
+    format: file_ref
   wall_timeout:
     from: input.wall_timeout
     type: number
     optional: true      # общий лимит рана, секунды (default 300)
 
 output:
-  file:     { type: string }
-  macros:   { type: array }   # [{vba_filename, subfilename, ole_stream}]
-  findings: { type: array }   # [{type, keyword, description}]
-  count:    { type: number }
+  # Строка, которую дал оператор. Абсолютная форма ничего бы не добавила, а
+  # привязала бы вывод и журнал рана к машине. Внутри донора путь тоже не
+  # гуляет: argv донора содержит только имя файла (см. main.py про cwd).
+  file: { type: string }
+  # Тип файла ИЗ СЛОВАРЯ ДОНОРА: OLE, OpenXML, Text, XML, MHTML, RTF, SLK.
+  # Пустая строка означает «эта версия olevba не назвала тип», а не «тип
+  # неизвестен обёртке».
+  file_type: { type: string, format: text }
+  # Макрос = {vba_filename, subfilename, ole_stream}. subfilename — имя файла,
+  # каким его увидел донор, то есть без пути; полный путь уже дан выше в file.
+  # code (исходник макроса) не копируется.
+  macros: { type: array }
+  # Находка = {type, keyword, description}. Типы и описания — строки словарей
+  # донора (AutoExec, Suspicious, IOC), своими словами не пересказываем.
+  findings: { type: array }
+  count: { type: number }
+  # Версия olevba (MetaInformation.version). Без неё «макросов нет»
+  # неотличимо от «эта версия не знает такой формат».
+  tool_version: { type: string, format: text }
 
 permissions:
-  network: []            # анализ локального файла, сеть не нужна
+  network: []            # анализ локального файла, сеть не нужна: донор читает
+                         # только файл. Проверено запуском с заблокированными
+                         # socket.connect/connect_ex/create_connection/
+                         # getaddrinfo/gethostbyname — блокировка не сработала
+                         # ни разу (счётчик вызовов 0), а exit 0 и репорт те же
   filesystem: read       # читает только указанный пользователем документ
   secrets: []

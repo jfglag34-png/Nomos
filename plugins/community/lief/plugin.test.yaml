@@ -1,137 +1,286 @@
-# Контракт-тесты lief (mock сниппета донора, без пакета lief и без сети).
-# Входной файл — заглушка (main.py в каталоге плагина): бинарник разбирает мок,
-# плагин проверяет оркестрацию и нормализацию JSON.
+# Контракт-тесты lief.
+#
+# Тесты разбиты на две группы, и различие между ними существенное.
+#
+# 1. РЕАЛЬНЫЙ ИНСТРУМЕНТ (кейсы без LIEF_BIN) — плагин запускает тот же
+#    сниппет на настоящем LIEF 1.0.0 и по-настоящему разбирает PE из fixtures/.
+#    Ожидаемые значения сняты с донора: 18 секций, 6 импортируемых DLL, .bss с
+#    size 0 и memory_size 368, имена флагов из словаря донора (CNT_CODE,
+#    MEM_EXECUTE…), версия донора «1.0.0-d05b3499b». Эти кейсы заодно доказывают,
+#    что обёртка справляется с путём, в котором есть кириллица: LIEF 1.0 такие
+#    пути не открывает, и без короткого имени 8.3 все они были бы красными.
+#    Пока донор не установлен, кейсы падают — это правда, а не сбой теста.
+#
+# 2. МОК (кейсы с LIEF_BIN) — ветки отказа и разбор ответа: формат не тот,
+#    файл не разобран, донор не импортируется, таймаут, пустой stdout, битый
+#    JSON, шум в stdout без маркера, ответ без версии.
+#
+# Фикстуры лежат в fixtures/ и передаются относительными путями: подпроцесс
+# плагина стартует в каталоге плагина, абсолютный путь был бы привязан к
+# машине. sample.dll собирается из sample.c (см. комментарий в нём).
 tests:
-  - name: PE → format, header, секции
-    env: { LIEF_BIN: "mock_lief.py" }
-    input: { file: "main.py" }
+  # ── 1. реальный инструмент ───────────────────────────────────────────────
+  - name: "РЕАЛ: PE → формат, машина, образ, секции, библиотеки, версия"
+    # equals сравнивает массив целиком вместе с порядком: порядок секций задаёт
+    # донор, и «секций 18» прошло бы при выпавшей секции.
+    input: { file: "fixtures/sample.dll" }
+    timeout: 90s
     expect:
       status: ok
+      exit_code: 0
       output:
-        file: "main.py"
+        file: "fixtures/sample.dll"
         format: "PE"
-        count: 2
-        sections: { contains: { name: ".text", size: 4198400, offset: 1024, virtual_address: 4198400 } }
-        header:
-          architecture: "X86_64"
-          object_type: "EXECUTABLE"
-          endianness: "LITTLE"
-          is_64: true
-          entrypoint: 4198400
+        machine: "AMD64"
+        entrypoint: 6442455791
+        imagebase: 6442450944
+        is_pie: true
+        has_nx: true
+        virtual_size: 86016
+        section_count: 18
+        # Строка донора как есть, с суффиксом сборки. Обрезать её до «1.0»
+        # было бы выдумкой обёртки.
+        parser_version: "1.0.0-d05b3499b"
+        libraries:
+          equals:
+            - "KERNEL32.dll"
+            - "api-ms-win-crt-heap-l1-1-0.dll"
+            - "api-ms-win-crt-private-l1-1-0.dll"
+            - "api-ms-win-crt-runtime-l1-1-0.dll"
+            - "api-ms-win-crt-stdio-l1-1-0.dll"
+            - "api-ms-win-crt-string-l1-1-0.dll"
+        sections:
+          equals:
+            - {name: ".text",   size: 7168, memory_size: 6832, offset: 1536,  virtual_address: 4096,  flags: ["CNT_CODE", "MEM_EXECUTE", "MEM_READ"]}
+            - {name: ".data",   size: 512,  memory_size: 112,  offset: 8704,  virtual_address: 12288, flags: ["CNT_INITIALIZED_DATA", "MEM_READ", "MEM_WRITE"]}
+            - {name: ".rdata",  size: 1536, memory_size: 1208, offset: 9216,  virtual_address: 16384, flags: ["CNT_INITIALIZED_DATA", "MEM_READ"]}
+            - {name: "/4",      size: 512,  memory_size: 4,    offset: 10752, virtual_address: 20480, flags: ["CNT_INITIALIZED_DATA", "MEM_READ", "MEM_WRITE"]}
+            - {name: ".pdata",  size: 512,  memory_size: 492,  offset: 11264, virtual_address: 24576, flags: ["CNT_INITIALIZED_DATA", "MEM_READ"]}
+            - {name: ".xdata",  size: 512,  memory_size: 452,  offset: 11776, virtual_address: 28672, flags: ["CNT_INITIALIZED_DATA", "MEM_READ"]}
+            - {name: ".bss",    size: 0,    memory_size: 368,  offset: 0,     virtual_address: 32768, flags: ["CNT_UNINITIALIZED_DATA", "MEM_READ", "MEM_WRITE"]}
+            - {name: ".edata",  size: 512,  memory_size: 82,   offset: 12288, virtual_address: 36864, flags: ["CNT_INITIALIZED_DATA", "MEM_READ"]}
+            - {name: ".idata",  size: 1536, memory_size: 1460, offset: 12800, virtual_address: 40960, flags: ["CNT_INITIALIZED_DATA", "MEM_READ"]}
+            - {name: ".tls",    size: 512,  memory_size: 16,   offset: 14336, virtual_address: 45056, flags: ["CNT_INITIALIZED_DATA", "MEM_READ", "MEM_WRITE"]}
+            - {name: ".reloc",  size: 512,  memory_size: 64,   offset: 14848, virtual_address: 49152, flags: ["CNT_INITIALIZED_DATA", "MEM_DISCARDABLE", "MEM_READ"]}
+            - {name: "/14",     size: 512,  memory_size: 80,   offset: 15360, virtual_address: 53248, flags: ["CNT_INITIALIZED_DATA", "MEM_DISCARDABLE", "MEM_READ"]}
+            - {name: "/29",     size: 5120, memory_size: 4702, offset: 15872, virtual_address: 57344, flags: ["CNT_INITIALIZED_DATA", "MEM_DISCARDABLE", "MEM_READ"]}
+            - {name: "/41",     size: 512,  memory_size: 202,  offset: 20992, virtual_address: 65536, flags: ["CNT_INITIALIZED_DATA", "MEM_DISCARDABLE", "MEM_READ"]}
+            - {name: "/55",     size: 512,  memory_size: 164,  offset: 21504, virtual_address: 69632, flags: ["CNT_INITIALIZED_DATA", "MEM_DISCARDABLE", "MEM_READ"]}
+            - {name: "/67",     size: 512,  memory_size: 72,   offset: 22016, virtual_address: 73728, flags: ["CNT_INITIALIZED_DATA", "MEM_DISCARDABLE", "MEM_READ"]}
+            - {name: "/80",     size: 512,  memory_size: 134,  offset: 22528, virtual_address: 77824, flags: ["CNT_INITIALIZED_DATA", "MEM_DISCARDABLE", "MEM_READ"]}
+            - {name: "/91",     size: 512,  memory_size: 408,  offset: 23040, virtual_address: 81920, flags: ["CNT_INITIALIZED_DATA", "MEM_DISCARDABLE", "MEM_READ"]}
 
-  - name: ELF тем же парсером LIEF
-    env: { LIEF_BIN: "mock_lief.py", MOCK_ALT: "1" }
-    input: { file: "main.py" }
+  - name: "РЕАЛ: .bss — size 0 на диске и 368 в памяти (это разные числа)"
+    # Секции в файле нет, в образе она есть. Обёртка отдаёт оба размера от
+    # донора; если бы она подменила size виртуальным, здесь было бы 368.
+    input: { file: "fixtures/sample.dll" }
+    timeout: 90s
     expect:
       status: ok
       output:
-        format: "ELF"
-        count: 0
-        sections: []
-        header:
-          architecture: "X86_64"
-          object_type: "LIBRARY"
-          endianness: "LITTLE"
-          is_64: true
-          entrypoint: 10506752
+        sections:
+          contains: {name: ".bss", size: 0, memory_size: 368, offset: 0,
+                     virtual_address: 32768,
+                     flags: ["CNT_UNINITIALIZED_DATA", "MEM_READ", "MEM_WRITE"]}
 
-  - name: старый LIEF без абстрактного header → пустые поля, не падение
-    env: { LIEF_BIN: "mock_lief.py", MOCK_LEGACY: "1" }
-    input: { file: "main.py" }
+  - name: "РЕАЛ: флаги секции — имена из словаря донора, а не буквы обёртки"
+    input: { file: "fixtures/sample.dll" }
+    timeout: 90s
+    expect:
+      status: ok
+      output:
+        sections:
+          contains: {name: ".text", size: 7168, memory_size: 6832, offset: 1536,
+                     virtual_address: 4096,
+                     flags: ["CNT_CODE", "MEM_EXECUTE", "MEM_READ"]}
+
+  - name: "РЕАЛ: длинное имя секции приходит как ссылка «/29», не выдумывается"
+    # В COFF длинное имя лежит в строковой таблице, а в таблице секций стоит
+    # ссылка «/смещение». Разыменовать её — значит придумать имя, которого в
+    # файле нет, поэтому обёртка отдаёт ссылку как есть.
+    input: { file: "fixtures/sample.dll" }
+    timeout: 90s
+    expect:
+      status: ok
+      output:
+        sections:
+          contains: {name: "/29", size: 5120, memory_size: 4702, offset: 15872,
+                     virtual_address: 57344,
+                     flags: ["CNT_INITIALIZED_DATA", "MEM_DISCARDABLE", "MEM_READ"]}
+
+  - name: "РЕАЛ: наружу не уходят хеши файла, PDB, отладка и время сборки"
+    # Всё это LIEF умеет отдать, и всё это решено не отдавать: authentihash —
+    # хеш-отпечаток файла (аналог imphash), codeview_pdb — путь с машины
+    # сборки, debug_info — пути и исходники, rich_header — отпечаток
+    # сборочной линейки, time_date_stamps — время сборки. absent проверяет
+    # границу EnforceOutput, то есть то, что реально уходит в ран.
+    input: { file: "fixtures/sample.dll" }
+    timeout: 90s
+    expect:
+      status: ok
+      exit_code: 0
+      output:
+        authentihash_sha256: { absent: true }
+        authentihash_md5:    { absent: true }
+        codeview_pdb:        { absent: true }
+        debug_info:          { absent: true }
+        rich_header:         { absent: true }
+        symbols:             { absent: true }
+        time_date_stamps:    { absent: true }
+
+  - name: "РЕАЛ: wall_timeout числом доезжает до обёртки"
+    input: { file: "fixtures/sample.dll", wall_timeout: 120 }
+    timeout: 150s
     expect:
       status: ok
       output:
         format: "PE"
-        count: 0
-        header:
-          architecture: ""
-          object_type: ""
-          endianness: ""
-          is_64: false
-          entrypoint: 0
 
-  - name: пустой file → доменная ошибка
-    env: { LIEF_BIN: "mock_lief.py" }
-    input: { file: "  " }
-    expect:
-      status: error
-      exit_code: 1
-      error: { code: empty_file, retryable: false }
-
-  - name: несуществующий файл → missing_file
-    env: { LIEF_BIN: "mock_lief.py" }
-    input: { file: "нет-такого-файла" }
-    expect:
-      status: error
-      exit_code: 1
-      error: { code: missing_file, retryable: false }
-
-  - name: формат не поддерживается → unsupported_format
-    env: { LIEF_BIN: "mock_lief.py", MOCK_UNSUPPORTED: "1" }
-    input: { file: "README.md" }
+  - name: "РЕАЛ: файл не бинарник (исходник) → unsupported_format"
+    input: { file: "fixtures/sample.c" }
+    timeout: 90s
     expect:
       status: error
       exit_code: 1
       error: { code: unsupported_format, retryable: false }
 
-  - name: формат опознан, но файл битый → bad_file
-    env: { LIEF_BIN: "mock_lief.py", MOCK_BAD_FILE: "1" }
-    input: { file: "main.py" }
+  - name: "РЕАЛ: пустой file → доменная ошибка, донор не запускался"
+    input: { file: "   " }
     expect:
       status: error
       exit_code: 1
-      error: { code: bad_file, retryable: false }
+      error: { code: empty_file, retryable: false }
 
-  - name: lief не установлен (донор переопределён на путь)
+  - name: "РЕАЛ: несуществующий файл → missing_file"
+    input: { file: "fixtures/no-such-file.dll" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: missing_file, retryable: false }
+
+  - name: "РЕАЛ: wall_timeout не число → платформенная ошибка"
+    input: { file: "fixtures/sample.dll", wall_timeout: "быстро" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: "РЕАЛ: wall_timeout ≤ 0 → платформенная ошибка"
+    input: { file: "fixtures/sample.dll", wall_timeout: 0 }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: "РЕАЛ: битый JSON входа → платформенная ошибка"
+    input_raw: "{не json"
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_input }
+
+  - name: "РЕАЛ: LIEF_BIN на несуществующий путь → донор не запустился"
     env: { LIEF_BIN: "/nonexistent/lief-bin" }
-    input: { file: "main.py" }
-    expect:
-      status: error
-      exit_code: 1
-      error: { code: lief_not_installed, retryable: false }
-
-  - name: lief не установлен (донор не импортируется)
-    env: { LIEF_BIN: "mock_lief.py", MOCK_NO_MODULE: "1" }
-    input: { file: "main.py" }
+    input: { file: "fixtures/sample.dll" }
     expect:
       status: error
       exit_code: 1
       error: { code: lief_not_installed }
 
-  - name: wall timeout → доменная, retryable
+  - name: "РЕАЛ: LIEF_BIN на имя, которого нет в PATH → донор не запустился"
+    env: { LIEF_BIN: "definitely_not_a_lief_bin_xyz" }
+    input: { file: "fixtures/sample.dll" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: lief_not_installed }
+
+  # ── 2. мок: ветки отказа, которые нельзя вызвать у настоящего донора ────
+  - name: "МОК: ELF вместо PE, секций нет → section_count 0"
+    env: { LIEF_BIN: "mock_lief.py", MOCK_ALT: "1" }
+    input: { file: "fixtures/sample.dll" }
+    expect:
+      status: ok
+      exit_code: 0
+      output:
+        format: "ELF"
+        machine: "X86_64"
+        section_count: 0
+        sections: []
+        libraries: []
+        parser_version: "1.0.0-d05b3499b"
+
+  - name: "МОК: ответ без версии → платформенная ошибка"
+    env: { LIEF_BIN: "mock_lief.py", MOCK_NO_VERSION: "1" }
+    input: { file: "fixtures/sample.dll" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:version_unknown }
+
+  - name: "МОК: шум в stdout без маркера → платформенная ошибка, а не частичный разбор"
+    # LIEF печатает разбор COFF-символов; репорт помечен маркером именно
+    # поэтому. Без маркера «stdout целиком — JSON» была бы ложью.
+    env: { LIEF_BIN: "mock_lief.py", MOCK_NO_MARK: "1" }
+    input: { file: "fixtures/sample.dll" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: "МОК: формат не тот → unsupported_format"
+    env: { LIEF_BIN: "mock_lief.py", MOCK_UNSUPPORTED: "1" }
+    input: { file: "fixtures/sample.dll" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: unsupported_format, retryable: false }
+
+  - name: "МОК: формат опознан, но файл не разобран → bad_file"
+    env: { LIEF_BIN: "mock_lief.py", MOCK_BAD_FILE: "1" }
+    input: { file: "fixtures/sample.dll" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_file, retryable: false }
+
+  - name: "МОК: LIEF не импортируется → доменная ошибка"
+    env: { LIEF_BIN: "mock_lief.py", MOCK_NO_MODULE: "1" }
+    input: { file: "fixtures/sample.dll" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: lief_not_installed }
+
+  - name: "МОК: wall timeout → доменная, retryable"
     env: { LIEF_BIN: "mock_lief.py", MOCK_SLEEP: "3" }
-    input: { file: "main.py", wall_timeout: 1 }
+    input: { file: "fixtures/sample.dll", wall_timeout: 1 }
+    timeout: 20s
     expect:
       status: error
       exit_code: 1
       error: { code: timeout, retryable: true }
 
-  - name: сниппет без вывода → no_report
+  - name: "МОК: сниппет без вывода → no_report"
     env: { LIEF_BIN: "mock_lief.py", MOCK_NO_REPORT: "1" }
-    input: { file: "main.py" }
+    input: { file: "fixtures/sample.dll" }
     expect:
       status: error
       exit_code: 1
-      error: { code: no_report, retryable: false }
+      error: { code: no_report }
 
-  - name: донор упал → tool_failed
+  - name: "МОК: донор упал → tool_failed"
     env: { LIEF_BIN: "mock_lief.py", MOCK_FAIL: "1" }
-    input: { file: "main.py" }
+    input: { file: "fixtures/sample.dll" }
     expect:
       status: error
       exit_code: 1
       error: { code: tool_failed, retryable: false }
 
-  - name: битый JSON донора → платформенная ошибка
+  - name: "МОК: битый JSON донора → платформенная ошибка"
     env: { LIEF_BIN: "mock_lief.py", MOCK_BAD_REPORT: "1" }
-    input: { file: "main.py" }
+    input: { file: "fixtures/sample.dll" }
     expect:
       status: error
       exit_code: 2
-      error: { code: "platform:bad_report" }
-
-  - name: битый JSON входа → платформенная ошибка
-    env: { LIEF_BIN: "mock_lief.py" }
-    input_raw: "{не json"
-    expect:
-      exit_code: 2
+      error: { code: platform:bad_report }

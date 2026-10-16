@@ -1,126 +1,294 @@
-# Контракт-тесты msoffcrypto_tool (mock CLI msoffcrypto-tool, без пакета и без сети).
-# Пароль нигде не настоящий: в тестах используется mock-строка только на время
-# запуска мока.
+# Контракт-тесты msoffcrypto_tool.
+#
+# Тесты разбиты на две группы, и различие между ними существенное.
+#
+# 1. РЕАЛЬНЫЙ ИНСТРУМЕНТ (кейсы без MSOFFCRYPTO_TOOL_BIN) — плагин запускает
+#    боевой сниппет на настоящем msoffcrypto-tool 6.0.0 по фикстурам из
+#    fixtures/ (собраны fixtures/make_office.py: тот же донор зашифровал
+#    plain.docx паролем Fixture-Passw0rd). Эти кейсы и есть доказательство, что
+#    порты и типы взяты из ответа донора, а не придуманы обёрткой: agile и
+#    tool_version 6.0.0 приходят оттуда же. Пока донор не установлен, кейсы
+#    падают — это правда, а не сбой теста.
+#
+# 2. МОК (кейсы с MSOFFCRYPTO_TOOL_BIN) — ветки отказа, которые настоящим
+#    донором не вызвать: зависнуть или отдать битый ответ он не может. Мок
+#    повторяет протокол сниппета (argv, stdin с паролем, маркер wedra_error).
+#
+# Фикстуры лежат в fixtures/ и передаются относительными путями: подпроцесс
+# плагина стартует в каталоге плагина, абсолютный путь был бы привязан к
+# машине.
+#
+# Про пароль в env. MSOFFCRYPTO_PASSWORD на машине, где гоняются тесты, должен
+# быть НЕ установлен: кейс «пароля нет» опирается на его отсутствие, и
+# установленная переменная дала бы ложный красный. Кейс «ничего не
+# расшифровывалось» поэтому построен на «пароль есть, out нет» — он от
+# окружения не зависит.
+#
+# Про out в тестах. Это относительное имя, а каталог плагина обёртка для
+# расшифровки намеренно не трогает: запись внутри каталога плагина меняет его
+# хэш содержимого, и allow-list, который `plugin test` строит один раз на
+# прогон, после первой же записи перестаёт совпадать — половина кейсов ушла бы
+# в красный с «не в allow-list доверия ядра». Поэтому файл уезжает во временный
+# каталог ОС, а кейс проверяет только то, что видно в выводе.
 tests:
-  - name: расшифровка паролем из env → файл на выходе
-    env:
-      MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py"
-      MSOFFCRYPTO_PASSWORD: "mock-password-not-a-secret"
-    input: { file: "main.py" }
+  # ── 1. реальный инструмент ───────────────────────────────────────────────
+  - name: "РЕАЛ: зашифрованный документ → донор назвал тип agile и свою версию"
+    input: { file: "fixtures/encrypted.docx" }
+    timeout: 60s
+    expect:
+      status: ok
+      exit_code: 0
+      output:
+        file: "fixtures/encrypted.docx"
+        encrypted: true
+        # Тип из СЛОВАРЯ донора (OfficeFile.type), не из таблицы обёртки:
+        # у msoffcrypto их agile, standard, extensible, plain, xor, rc4,
+        # rc4_cryptoapi. Пустая строка означала бы «эта версия не назвала тип».
+        encryption_type: "agile"
+        decrypted: false
+        decrypted_size: 0
+        tool_version: "6.0.0"
+
+  - name: "РЕАЛ: незашифрованный документ → не ошибка, а «не зашифрован»"
+    input: { file: "fixtures/plain.docx" }
+    timeout: 60s
     expect:
       status: ok
       output:
-        file: { contains: "msoffcrypto_tool" }
+        file: "fixtures/plain.docx"
+        encrypted: false
+        # "plain" — тоже тип от донора, а не «пусто».
+        encryption_type: "plain"
+        decrypted: false
+        tool_version: "6.0.0"
+
+  - name: "РЕАЛ: пароль из env + out → расшифровано, размер как у открытого текста"
+    env: { MSOFFCRYPTO_PASSWORD: "Fixture-Passw0rd" }
+    input: { file: "fixtures/encrypted.docx", out: "_decrypted_by_test.docx" }
+    timeout: 60s
+    expect:
+      status: ok
+      output:
+        encrypted: true
         decrypted: true
-        output_path: { contains: "decrypted" }
+        # 9707 — размер fixtures/plain.docx; это размер файла, который донор
+        # записал, а не константа обёртки.
+        decrypted_size: 9707
 
-  - name: пароля в env нет → режим проверки (-t), ничего не расшифровано
-    env: { MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py" }
-    input: { file: "main.py" }
-    expect:
-      status: ok
-      output:
-        file: { contains: "msoffcrypto_tool" }
-        decrypted: false
-        output_path: ""
-
-  - name: пароля нет и документ не зашифрован (-t → exit 1) → ok
-    env:
-      MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py"
-      MOCK_NOT_ENCRYPTED: "1"
-    input: { file: "main.py" }
-    expect:
-      status: ok
-      output:
-        decrypted: false
-        output_path: ""
-
-  - name: пароль есть, но outfile не создан → доменная ошибка
-    env:
-      MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py"
-      MSOFFCRYPTO_PASSWORD: "mock-password-not-a-secret"
-      MOCK_NO_REPORT: "1"
-    input: { file: "main.py" }
+  - name: "РЕАЛ: неверный пароль → доменная ошибка bad_password"
+    # Настоящий донор умеет отказать по паролю детерминированно, поэтому ветка
+    # проверяется живым инструментом, а не моком.
+    env: { MSOFFCRYPTO_PASSWORD: "не-подойдёт" }
+    input: { file: "fixtures/encrypted.docx", out: "_decrypted_by_test.docx" }
+    timeout: 60s
     expect:
       status: error
       exit_code: 1
-      error: { code: no_report }
+      error: { code: bad_password, retryable: false }
 
-  - name: неверный пароль → tool_failed
-    env:
-      MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py"
-      MSOFFCRYPTO_PASSWORD: "mock-password-not-a-secret"
-      MOCK_FAIL: "1"
-    input: { file: "main.py" }
+  - name: "РЕАЛ: пароль и out, но документ не зашифрован → not_encrypted"
+    env: { MSOFFCRYPTO_PASSWORD: "Fixture-Passw0rd" }
+    input: { file: "fixtures/plain.docx", out: "_decrypted_by_test.docx" }
+    timeout: 60s
     expect:
       status: error
       exit_code: 1
-      error: { code: tool_failed, retryable: false }
+      error: { code: not_encrypted, retryable: false }
 
-  - name: out не строка → платформенная ошибка
-    env:
-      MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py"
-      MSOFFCRYPTO_PASSWORD: "mock-password-not-a-secret"
-    input: { file: "main.py", out: ["a", "b"] }
+  - name: "РЕАЛ: пароль есть, out нет → только проверка, ничего не пишется"
+    # Пароль не попадает в argv: единственный способ передать его донору —
+    # stdin. Раз out не задан, расшифровки не происходит вовсе.
+    env: { MSOFFCRYPTO_PASSWORD: "Fixture-Passw0rd" }
+    input: { file: "fixtures/encrypted.docx" }
+    timeout: 60s
+    expect:
+      status: ok
+      output:
+        encrypted: true
+        decrypted: false
+        decrypted_size: 0
+
+  - name: "РЕАЛ: не офисный документ → unsupported_format, а не «не зашифровано»"
+    input: { file: "fixtures/make_office.py" }
+    timeout: 60s
     expect:
       status: error
-      exit_code: 2
-      error: { code: platform:bad_out }
+      exit_code: 1
+      error: { code: unsupported_format, retryable: false }
 
-  - name: пустой file → доменная ошибка
-    env:
-      MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py"
-      MSOFFCRYPTO_PASSWORD: "mock-password-not-a-secret"
+  - name: "РЕАЛ: wall_timeout числом доезжает до обёртки"
+    input: { file: "fixtures/encrypted.docx", wall_timeout: 60 }
+    timeout: 90s
+    expect:
+      status: ok
+      output: { encrypted: true }
+
+  - name: "РЕАЛ: пустой file → доменная ошибка, донор не запускался"
     input: { file: "   " }
     expect:
       status: error
       exit_code: 1
-      error: { code: empty_file }
+      error: { code: empty_file, retryable: false }
 
-  - name: несуществующий файл → доменная ошибка
-    env:
-      MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py"
-      MSOFFCRYPTO_PASSWORD: "mock-password-not-a-secret"
+  - name: "РЕАЛ: несуществующий файл → доменная ошибка"
     input: { file: "/nonexistent/msoffcrypto-encrypted.docx" }
     expect:
       status: error
       exit_code: 1
       error: { code: missing_file, retryable: false }
 
-  - name: на входе каталог, а не файл → доменная ошибка
-    env:
-      MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py"
-      MSOFFCRYPTO_PASSWORD: "mock-password-not-a-secret"
-    input: { file: "." }
+  - name: "РЕАЛ: на входе каталог, а не файл → missing_file"
+    input: { file: "fixtures" }
     expect:
       status: error
       exit_code: 1
       error: { code: missing_file }
 
-  - name: msoffcrypto-tool не установлен (путь)
-    env:
-      MSOFFCRYPTO_TOOL_BIN: "/nonexistent/msoffcrypto-tool-bin"
-      MSOFFCRYPTO_PASSWORD: "mock-password-not-a-secret"
-    input: { file: "main.py" }
+  - name: "РЕАЛ: битый JSON входа → платформенная ошибка"
+    input_raw: "{не json"
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_input }
+
+  - name: "РЕАЛ: out не строка → платформенная ошибка"
+    input: { file: "fixtures/encrypted.docx", out: ["a", "b"] }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_out }
+
+  - name: "РЕАЛ: wall_timeout не число → платформенная ошибка"
+    input: { file: "fixtures/encrypted.docx", wall_timeout: "не число" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: "РЕАЛ: wall_timeout ≤ 0 → платформенная ошибка"
+    input: { file: "fixtures/encrypted.docx", wall_timeout: 0 }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: "РЕАЛ: MSOFFCRYPTO_TOOL_BIN на несуществующий путь → донор не запустился"
+    env: { MSOFFCRYPTO_TOOL_BIN: "/nonexistent/msoffcrypto-tool-bin" }
+    input: { file: "fixtures/encrypted.docx" }
     expect:
       status: error
       exit_code: 1
       error: { code: msoffcrypto_tool_not_installed, retryable: false }
 
-  - name: msoffcrypto-tool не установлен (имя из PATH)
-    env:
-      MSOFFCRYPTO_TOOL_BIN: "definitely_not_an_msoffcrypto_bin_xyz"
-      MSOFFCRYPTO_PASSWORD: "mock-password-not-a-secret"
-    input: { file: "main.py" }
+  - name: "РЕАЛ: MSOFFCRYPTO_TOOL_BIN на имя, которого нет в PATH → донор не запустился"
+    env: { MSOFFCRYPTO_TOOL_BIN: "definitely_not_an_msoffcrypto_bin_xyz" }
+    input: { file: "fixtures/encrypted.docx" }
     expect:
       status: error
       exit_code: 1
       error: { code: msoffcrypto_tool_not_installed }
 
-  - name: битый JSON входа → платформенная ошибка
+  # ── 2. мок: ветки отказа, которые нельзя вызвать у настоящего донора ────
+  - name: "МОК: wall timeout → доменная, retryable"
+    env: { MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py", MOCK_SLEEP: "3" }
+    input: { file: "fixtures/encrypted.docx", wall_timeout: 1 }
+    timeout: 20s
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: "МОК: донор упал → tool_failed, а не «пусто»"
+    env: { MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py", MOCK_FAIL: "1" }
+    input: { file: "fixtures/encrypted.docx" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: "МОК: сниппет ничего не напечатал → no_report"
+    env: { MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py", MOCK_NO_REPORT: "1" }
+    input: { file: "fixtures/encrypted.docx" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: "МОК: нечитаемый ответ донора → платформенная ошибка"
+    env: { MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py", MOCK_BAD_REPORT: "1" }
+    input: { file: "fixtures/encrypted.docx" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: "МОК: ответ без версии → платформенная ошибка, а не пустая строка"
+    # «Документ не зашифрован» и «эта версия донора не знает такой тип» —
+    # разные вещи, и без версии они сливаются в одно.
+    env: { MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py", MOCK_NO_VERSION: "1" }
+    input: { file: "fixtures/encrypted.docx" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:version_unknown }
+
+  - name: "МОК: документ не офисный → unsupported_format"
+    env: { MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py", MOCK_UNSUPPORTED: "1" }
+    input: { file: "fixtures/encrypted.docx" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: unsupported_format }
+
+  - name: "МОК: пароль не подошёл → bad_password"
     env:
       MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py"
       MSOFFCRYPTO_PASSWORD: "mock-password-not-a-secret"
-    input_raw: "{не json"
+      MOCK_BAD_PASSWORD: "1"
+    input: { file: "fixtures/encrypted.docx", out: "_decrypted_by_test.docx" }
     expect:
-      exit_code: 2
+      status: error
+      exit_code: 1
+      error: { code: bad_password }
+
+  - name: "МОК: незашифрованный документ с out → not_encrypted"
+    env:
+      MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py"
+      MSOFFCRYPTO_PASSWORD: "mock-password-not-a-secret"
+      MOCK_NOT_ENCRYPTED: "1"
+    input: { file: "fixtures/plain.docx", out: "_decrypted_by_test.docx" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: not_encrypted }
+
+  - name: "МОК: незашифрованный документ без out → ok, а не ошибка"
+    env:
+      MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py"
+      MOCK_PLAIN: "1"
+    input: { file: "fixtures/plain.docx" }
+    expect:
+      status: ok
+      exit_code: 0
+      output:
+        encrypted: false
+        encryption_type: "plain"
+        decrypted: false
+        tool_version: "6.0.0"
+
+  - name: "МОК: соль, проверочные хеши пароля и secret_key наружу не уходят"
+    # Мок кладёт в ответ поля, которые обёртка копировать не должна: соль и
+    # проверочный хеш из office.info перебираются офлайн, secret_key — прямая
+    # производная от пароля. absent проверяет границу EnforceOutput, то есть
+    # то, что реально уходит в ран; сверху обёртка режет их сама, по списку
+    # разрешённых имён.
+    env:
+      MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py"
+      MOCK_EXTRA_FIELDS: "1"
+    input: { file: "fixtures/encrypted.docx" }
+    expect:
+      status: ok
+      output:
+        encrypted: true
+        info: { absent: true }
+        secret_key: { absent: true }

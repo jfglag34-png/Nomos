@@ -1,19 +1,25 @@
 id: lief
-version: 0.1.0
+version: 0.2.0
 platform_api: "^0.1"
 description: >
   LIEF (LIEF-project/LIEF) — универсальный разбор бинарников: PE, ELF и Mach-O
-  одним и тем же парсером. Отдаёт формат, абстрактный заголовок (архитектура,
-  тип объекта, endianness, битность, entrypoint) и список секций. У донора нет
-  CLI, поэтому плагин запускает тот же интерпретатор с фиксированным сниппетом
-  (-c), который импортирует lief и печатает JSON (паттерн C). Библиотека
-  ставится отдельно: pip install lief.
+  одним и тем же парсером. Отдаёт формат, машину, точку входа, базу образа,
+  PIE/NX, размер образа в памяти, список секций (с именами флагов из словарей
+  донора) и список подключаемых библиотек. У донора нет ни CLI, ни консольного
+  скрипта, поэтому плагин запускает тот же интерпретатор с фиксированным
+  сниппетом (-c), который импортирует lief и печатает JSON (паттерн C).
+  Наружу не отдаются: authentihash (md5/sha1/sha256/sha512) — хеш-отпечаток
+  файла, путь PDB (codeview_pdb) и отладочная информация, rich_header,
+  время сборки, таблица символов. Пин: pip install lief==1.0.0
 author: "community · wedra showcase (reverse engineering)"
 
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; пакет lief — отдельно (pip install lief)
+  # Пин донора в runtime.requires, а не пометка «поставьте отдельно»: без него
+  # pip-пакет никто не ставил, плагин числился готовым в UI и падал на первом
+  # же запуске.
+  requires: ["lief==1.0.0"]
 
 input:
   file:
@@ -26,13 +32,45 @@ input:
     optional: true      # общий лимит рана, секунды (default 300)
 
 output:
+  # Строка оператора. Абсолютная форма ничего бы не добавила, а привязала бы
+  # вывод и журнал рана к машине.
   file:     { type: string }
+  # Имя формата ИЗ ENUM ДОНОРА: PE / ELF / MACHO.
   format:   { type: string }
-  header:   { type: object }
+  # Машина из заголовка соответствующего формата: у PE это header.machine
+  # ("AMD64"), у ELF — header.machine_type ("X86_64"), у MachO — header.cpu_type.
+  # Общего machine_type у бинарника в LIEF 1.0 нет (проверено), поэтому и
+  # таблицы «код → имя» у обёртки нет.
+  machine:  { type: string }
+  # Точка входа и база образа — как их отдаёт донор (у PE это уже
+  # виртуальный адрес, то есть imagebase + RVA).
+  entrypoint: { type: number }
+  imagebase:  { type: number }
+  is_pie:     { type: boolean }
+  has_nx:     { type: boolean }
+  virtual_size: { type: number }
+  # Секция = {name, size, memory_size, offset, virtual_address, flags[]}.
+  #   size         — размер НА ДИСКЕ. У .bss он 0, а виртуальный размер 368:
+  #                  в файле секции нет, в памяти она есть.
+  #   memory_size  — размер В ПАМЯТИ. У ELF поля virtual_size нет (там sh_size
+  #                  и есть размер), поэтому там memory_size = size, а не
+  #                  выдуманный ноль.
+  #   flags        — имена ИЗ СЛОВАРЯ ДОНОРА: у PE characteristics_lists
+  #                  (CNT_CODE, MEM_EXECUTE, MEM_READ…), у ELF flags_list.
   sections: { type: array }
-  count:    { type: number }
+  # Подключаемые библиотеки в терминах донора: у PE — импортируемые DLL, у ELF
+  # — DT_NEEDED, у MachO — dylib. Это один и тот же список в API LIEF.
+  libraries: { type: array }
+  section_count: { type: number }
+  # Версия донора как он её называет: у LIEF 1.0.0 это строка с суффиксом
+  # сборки («1.0.0-d05b3499b»). Обрезать её до «1.0» было бы выдумкой.
+  # Без неё «секций нет» неотличимо от «эта версия иначе разбирает образ».
+  parser_version: { type: string, format: text }
 
 permissions:
-  network: []
-  filesystem: read      # читает только указанный пользователем файл
+  network: []            # разбор локальных байтов, сеть не нужна: проверено
+                        # запуском с заблокированными socket.connect,
+                        # connect_ex, create_connection, getaddrinfo и
+                        # gethostbyname — тот же exit 0, те же 18 секций.
+  filesystem: read       # читает только указанный пользователем файл
   secrets: []

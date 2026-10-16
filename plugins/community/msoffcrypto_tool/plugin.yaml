@@ -1,37 +1,74 @@
 id: msoffcrypto_tool
-version: 0.1.0
+version: 0.2.0
 platform_api: "^0.1"
 description: >
-  msoffcrypto-tool (nolze/msoffcrypto-tool) — расшифровка офисных документов,
-  защищённых паролем. Обёртка зовёт CLI `msoffcrypto-tool <file> <out> -p <pass>`.
-  Пароль НЕ приходит из входа плагина: он читается из env MSOFFCRYPTO_PASSWORD
-  и передаётся аргументом; если переменной нет, плагин работает в режиме
-  проверки `msoffcrypto-tool -t -v <file>` и ничего не расшифровывает. Ставится
-  отдельно: pip install msoffcrypto-tool.
+  msoffcrypto-tool (nolze/msoffcrypto-tool) — проверка и расшифровка офисных
+  документов, закрытых паролем (OOXML, а также старые .doc/.xls/.ppt).
+  Обёртка запускает `python3 -c <сниппет>`, который импортирует msoffcrypto и
+  печатает один JSON в stdout: пароль донора можно передать только флагом -p,
+  а argv виден в списке процессов, поэтому пароль уходит в stdin донора.
+  Пароль НЕ приходит из входа плагина (вход уходит в контекст рана и журнал) —
+  только из env MSOFFCRYPTO_PASSWORD; без него плагин ничего не расшифровывает.
+  Расшифровка требует явного out: путь результата наружу не отдаётся, это
+  внутренний идентификатор машины. Наружу не отдаются office.info (соль,
+  проверочные хеши пароля, ключевой материал) и office.secret_key.
+  Пин: pip install msoffcrypto-tool==6.0.0
 author: "community · wedra showcase (AppSec)"
 
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; пакет msoffcrypto-tool — отдельно
+  # Пин донора в runtime.requires, а не пометка «поставьте отдельно»: без него
+  # pip-пакет никто не ставил, плагин числился готовым в UI и падал на первом
+  # же запуске. Требования донора (olefile, cryptography) в lock не входят
+  # намеренно — lock по контракту валидатора содержит ровно объявленные пины.
+  requires: ["msoffcrypto-tool==6.0.0"]
 
 input:
   file:
     from: input.file
     type: string
-    format: file_ref # путь к зашифрованному .doc/.xls/.ppt/... файлу
+    format: file_ref
   out:
     from: input.out
     type: string
-    optional: true      # куда положить расшифрованный файл (default: временный каталог ОС)
+    optional: true      # куда писать расшифрованный файл. Абсолютный путь
+                        # берётся как есть; относительное имя кладётся во
+                        # временный каталог ОС, а НЕ рядом с main.py: запись
+                        # внутри каталога плагина меняет хэш его содержимого, и
+                        # следующий запуск получил бы отказ «не в allow-list
+                        # доверия ядра». Без out (или без пароля в env)
+                        # расшифровки не происходит вовсе.
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
 
 output:
-  file:        { type: string }
-  decrypted:   { type: boolean }
-  output_path: { type: string }
+  # Строка, которую дал оператор. Абсолютная форма ничего бы не добавила, а
+  # привязала бы вывод и журнал рана к машине.
+  file:  { type: string }
+  # Зашифрован ли документ — это ответ донора (OfficeFile.is_encrypted).
+  encrypted: { type: boolean }
+  # Тип шифрования ИЗ СЛОВАРЯ ДОНОРА: agile, standard, extensible, plain
+  # (OOXML), xor, rc4, rc4_cryptoapi (xls/doc/ppt). Пустая строка означает
+  # «эта версия донора не назвала тип», а не «тип неизвестен обёртке».
+  encryption_type: { type: string, format: text }
+  # Расшифрован ли документ по этому запуску (нужен и пароль в env, и out).
+  decrypted: { type: boolean }
+  # Размер открытого текста, который донор записал в out; 0 без расшифровки.
+  decrypted_size: { type: number }
+  # Версия библиотеки-донора. Без неё «не зашифровано» неотличимо от «эта
+  # версия не знает такой тип шифрования».
+  tool_version: { type: string, format: text }
 
 permissions:
-  network: []            # расшифровка локального файла, сеть не нужна
-  filesystem: write      # пишет только указанный пользователем out (или временный каталог ОС)
+  network: []            # разбор локального файла, сеть не нужна: донор читает
+                         # только файл. Проверено запуском с заблокированными
+                         # socket.connect/connect_ex/create_connection/
+                         # getaddrinfo/gethostbyname — блокировка не
+                         # сработала ни разу (счётчик вызовов 0), а ответ и код
+                         # возврата те же, в том числе на ветке расшифровки
+  filesystem: write      # пишет только указанный пользователем out
   secrets:
     - MSOFFCRYPTO_PASSWORD

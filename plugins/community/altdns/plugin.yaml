@@ -1,19 +1,31 @@
 id: altdns
-version: 0.1.0
+version: 0.2.0
 platform_api: "^0.1"
 description: >
   altdns (infosec-au, CaptainHammy) — генерация перестановок/мутаций поддоменов
-  по словарю слов: из известных субдоменов строит кандидатов вида dev-www,
-  dev.www, www-dev для последующего брутфорса. Обёртка над CLI altdns, отчёт —
-  текстовый файл со списком перестановок, резолв (-r) не включается, поэтому
-  плагин полностью офлайн. Ставится отдельно: pip install py-altdns (пакет
-  «altdns» на PyPI — пустая заглушка 0.0.1, не он).
+  по словарю: из известного субдомена строятся кандидаты вида dev-www, dev.www,
+  www-dev для последующего брутфорса. Обёртка запускает
+  `python3 -m altdns -i <tmp>/subdomains.txt -o <tmp>/permutations.txt
+  -w <tmp>/words.txt [-n]`, читает файл с перестановками и отдаёт отсортированный
+  список: донор дедуплицирует через set() и печатает в порядке обхода
+  множества, который от прогона к прогону меняется. Резолв (-r/-s) не
+  включается — DNS-запросов донор не делает. Пин: pip install py-altdns==1.0.2
+  (пакет «altdns» на PyPI — пустая заглушка 0.0.1, не он).
+  Второй пин обязателен: py-altdns 1.0.2 импортирует `tldextract.tldextract.LOG`,
+  а в tldextract 5.0 этот символ удалён, и донор падает на ImportError ещё до
+  argparse (проверено на tldextract 5.4.0: exit 1, traceback).
 author: "community · wedra showcase (OSINT)"
 
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; пакет altdns — отдельно (pip install py-altdns)
+  # Пины в runtime.requires, а не пометка «поставьте отдельно»: без них
+  # pip-пакеты никто не ставил, плагин числился готовым в UI и падал на первом
+  # же запуске. tldextract — второй пин не по вкусу, а по необходимости, см.
+  # описание выше. Требования самого altdns (dnspython, termcolor, argparse)
+  # в lock не входят намеренно: lock по контракту валидатора содержит ровно
+  # объявленные пины, а остальное ставит pip вместе с depends.
+  requires: ["py-altdns==1.0.2", "tldextract==4.0.0"]
 
 input:
   host:
@@ -24,25 +36,38 @@ input:
     from: input.words
     type: array
     optional: true      # слова для подстановки; без него — короткий дефолт
+                        # обёртки (у донора -w обязателен, своего словаря нет)
   number_suffix:
     from: input.number_suffix
     type: boolean
-    optional: true      # ещё и варианты sub0..sub9 (флаг -n донора)
-  threads:
-    from: input.threads
-    type: number
-    optional: true      # -t донора; на генерацию не влияет, ограничивает резолвер
+    optional: true      # ещё и варианты sub-0..sub-9 (флаг -n донора)
+  # Порта threads НЕТ намеренно: -t у донора ограничивает резолвер, а резолвер
+  # (-r/-s) обёртка не запускает никогда. Порт «чтобы задать потоки» был бы
+  # обещанием, на которое в этом коде нечем ответить.
   wall_timeout:
     from: input.wall_timeout
     type: number
     optional: true      # общий лимит рана, секунды (default 300)
 
 output:
-  host:         { type: string }
+  host:    { type: string }
+  # Строка перестановки в терминах ДОНОРА: «altered subdomain». Свой словарь
+  # не заводим — донор отдаёт плоский список имён, и придумывать тут нечего.
   permutations: { type: array }
-  total:        { type: number }
+  total:   { type: number }
+  # Версия ПАКЕТА донора из importlib.metadata. У altdns нет ни флага
+  # --version, ни атрибута __version__, а перестановки зависят от версии и от
+  # снимка public suffix list внутри tldextract. Без неё «перестановок нет»
+  # неотличимо от «эта версия ничего не генерирует».
+  generator_version: { type: string, format: text }
 
 permissions:
-  network: []           # altdns без -r только перебирает строки, сети не нужно
+  # Сеть объявлена честно, по замеру: tldextract внутри донора при первом
+  # обращении тянет список public suffix с publicsuffix.org — с заблокированными
+  # socket.connect вызов altdus доходит до попытки соединения именно туда.
+  # При недоступной сети tldextract откатывается на встроенный снимок: тот же
+  # вход и те же 12 перестановок при соединениях, падающих с OSError.
+  network:
+    - { any_host: true, port: 443, note: "target: publicsuffix.org (список public suffix от tldextract; при отказе — встроенный снимок)" }
   filesystem: none
   secrets: []

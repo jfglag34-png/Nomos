@@ -1,120 +1,265 @@
-# Контракт-тесты pyelftools (mock сниппета донора, без пакета pyelftools и без сети).
-# Входной файл — заглушка (main.py в каталоге плагина): ELF разбирает мок,
-# плагин проверяет оркестрацию и нормализацию JSON.
+# Контракт-тесты pyelftools.
+#
+# Тесты разбиты на две группы, и различие между ними существенное.
+#
+# 1. РЕАЛЬНЫЙ ИНСТРУМЕНТ (кейсы без PYELFTOOLS_BIN) — плагин запускает тот же
+#    сниппет на настоящем pyelftools 0.33 и по-настоящему разбирает ELF из
+#    fixtures/. Ожидаемые значения сняты с донора: 8 секций и два DT_NEEDED у
+#    libfixture.so, ELF32/ET_REL/EM_386 и ноль DT_NEEDED у fixture32.o,
+#    ELFParseError на обрезанном truncated.so. Имена типов и машин приходят из
+#    словарей донора, поэтому их и проверяем как строки — своими таблицами мы
+#    ничего подменить не могли бы. Пока донор не установлен, кейсы падают —
+#    это правда, а не сбой теста.
+#
+# 2. МОК (кейсы с PYELFTOOLS_BIN) — ветки отказа. Настоящий pyelftools нельзя
+#    детерминированно заставить вернуть битый JSON или ответ без версии,
+#    поэтому для них нужен управляемый двойник. Моделирует он разбор реальной
+#    фикстуры, но НЕ проверяет, что донор ведёт себя так же, — поэтому он не
+#    может заменить группу 1.
+#
+# Фикстуры лежат в fixtures/ и передаются относительными путями: подпроцесс
+# плагина стартует в каталоге плагина, абсолютный путь был бы привязан к
+# машине. Сами фикстуры собираются скриптом fixtures/make_elf.py — на Windows
+# нет кросс-тулчейна, который собрал бы Linux-бинарник, а «файл с магией ELF»
+#  был бы подделкой.
 tests:
-  - name: ELF → класс, секции, библиотеки
-    env: { PYELFTOOLS_BIN: "mock_pyelftools.py" }
-    input: { file: "main.py" }
+  # ── 1. реальный инструмент ───────────────────────────────────────────────
+  - name: "РЕАЛ: динамический ELF64 → класс, тип, машина, секции, DT_NEEDED"
+    # equals сравнивает массив целиком вместе с порядком: порядок секций в
+    # файле и есть порядок обхода донора, и «секций 8» прошло бы при
+    # выпавшей секции.
+    input: { file: "fixtures/libfixture.so" }
+    timeout: 60s
     expect:
       status: ok
+      exit_code: 0
       output:
-        file: "main.py"
+        file: "fixtures/libfixture.so"
         elf_class: "ELF64"
-        count: 3
-        sections: { type: array }
-        libraries: ["libc.so.6", "libm.so.6"]
+        elf_type: "ET_DYN"
+        machine: "EM_X86_64"
+        entry: 448
+        section_count: 8
+        parser_version: "0.33"
+        libraries:
+          equals: ["libc.so.6", "libpthread.so.0"]
+        sections:
+          equals:
+            - { name: "",          type: "SHT_NULL",     flags: 0, size: 0,  addr: 0 }
+            - { name: ".dynstr",    type: "SHT_STRTAB",  flags: 2, size: 81, addr: 288 }
+            - { name: ".dynsym",    type: "SHT_DYNSYM",  flags: 2, size: 72, addr: 376 }
+            - { name: ".text",      type: "SHT_PROGBITS",flags: 6, size: 54, addr: 448 }
+            - { name: ".dynamic",   type: "SHT_DYNAMIC", flags: 3, size: 144, addr: 504 }
+            - { name: ".data",      type: "SHT_PROGBITS",flags: 3, size: 16, addr: 648 }
+            - { name: ".bss",       type: "SHT_NOBITS",  flags: 3, size: 64, addr: 672 }
+            - { name: ".shstrtab",  type: "SHT_STRTAB",  flags: 0, size: 53, addr: 0 }
 
-  - name: секции нормализованы (name/type/size/addr)
-    env: { PYELFTOOLS_BIN: "mock_pyelftools.py" }
-    input: { file: "plugin.yaml" }
+  - name: "РЕАЛ: имена типа и машины — из словарей донора (SHT_* / EM_*)"
+    # Обёртка не заводит таблицу «код → имя»: у pyelftools её нет и быть не
+    # может, а своя устарела бы первой. Проверяем конкретные имена, которые
+    # может выдать только словарь донора.
+    input: { file: "fixtures/libfixture.so" }
+    timeout: 60s
     expect:
       status: ok
       output:
-        sections: { contains: { name: ".text", type: "SHT_PROGBITS", size: 48213, addr: 10768 } }
+        sections:
+          contains: { name: ".text", type: "SHT_PROGBITS", flags: 6, size: 54, addr: 448 }
 
-  - name: ELF32 без секций → ok, count 0
-    env: { PYELFTOOLS_BIN: "mock_pyelftools.py", MOCK_ALT: "1" }
-    input: { file: "main.py" }
+  - name: "РЕАЛ: size у .bss — размер в памяти, а не в файле (SHT_NOBITS)"
+    # В .bss в файле ничего нет, но sh_size = 64. Обёртка отдаёт sh_size как
+    # есть; если бы она подменила его длиной данных на диске, здесь было бы 0.
+    input: { file: "fixtures/libfixture.so" }
+    timeout: 60s
     expect:
       status: ok
+      output:
+        sections:
+          contains: { name: ".bss", type: "SHT_NOBITS", flags: 3, size: 64, addr: 672 }
+
+  - name: "РЕАЛ: ELF32 ET_REL → другой класс, другая машина, ноль библиотек"
+    # Тот же плагин на другом файле: класс, тип и машина приходят от донора,
+    # а libraries пуст не потому, что плагин ничего не нашёл, а потому что у
+    # перемещаемого объектника секции .dynamic нет.
+    input: { file: "fixtures/fixture32.o" }
+    timeout: 60s
+    expect:
+      status: ok
+      exit_code: 0
       output:
         elf_class: "ELF32"
-        count: 0
-        sections: []
+        elf_type: "ET_REL"
+        machine: "EM_386"
+        entry: 0
+        section_count: 3
         libraries: []
+        parser_version: "0.33"
+        sections:
+          equals:
+            - { name: "",         type: "SHT_NULL",     flags: 0, size: 0,  addr: 0 }
+            - { name: ".text",    type: "SHT_PROGBITS", flags: 6, size: 16, addr: 52 }
+            - { name: ".shstrtab", type: "SHT_STRTAB",  flags: 0, size: 17, addr: 0 }
 
-  - name: пустой file → доменная ошибка
-    env: { PYELFTOOLS_BIN: "mock_pyelftools.py" }
-    input: { file: "  " }
-    expect:
-      status: error
-      exit_code: 1
-      error: { code: empty_file, retryable: false }
-
-  - name: несуществующий файл → missing_file
-    env: { PYELFTOOLS_BIN: "mock_pyelftools.py" }
-    input: { file: "нет-такого.elf" }
-    expect:
-      status: error
-      exit_code: 1
-      error: { code: missing_file, retryable: false }
-
-  - name: файл не ELF → доменная ошибка not_elf
-    env: { PYELFTOOLS_BIN: "mock_pyelftools.py", MOCK_NOT_ELF: "1" }
-    input: { file: "main.py" }
-    expect:
-      status: error
-      exit_code: 1
-      error: { code: not_elf, retryable: false }
-
-  - name: битый ELF → доменная ошибка bad_file
-    env: { PYELFTOOLS_BIN: "mock_pyelftools.py", MOCK_BAD_FILE: "1" }
-    input: { file: "main.py" }
+  - name: "РЕАЛ: обрезанный ELF → bad_file, а не not_elf"
+    # Магия на месте, файл не сошёлся. Разные коды — разные советы человеку:
+    # «перекачай файл» против «это не ELF».
+    input: { file: "fixtures/truncated.so" }
+    timeout: 60s
     expect:
       status: error
       exit_code: 1
       error: { code: bad_file, retryable: false }
 
-  - name: pyelftools не установлен (донор переопределён на путь)
-    env: { PYELFTOOLS_BIN: "/nonexistent/pyelftools-bin" }
-    input: { file: "main.py" }
+  - name: "РЕАЛ: не-ELF на настоящем доноре → not_elf"
+    input: { file: "fixtures/make_elf.py" }
+    timeout: 60s
     expect:
       status: error
       exit_code: 1
-      error: { code: pyelftools_not_installed, retryable: false }
+      error: { code: not_elf, retryable: false }
 
-  - name: pyelftools не установлен (донор не импортируется)
-    env: { PYELFTOOLS_BIN: "mock_pyelftools.py", MOCK_NO_MODULE: "1" }
-    input: { file: "main.py" }
+  - name: "РЕАЛ: wall_timeout числом доезжает до обёртки"
+    input: { file: "fixtures/fixture32.o", wall_timeout: 60 }
+    timeout: 90s
+    expect:
+      status: ok
+      output:
+        elf_class: "ELF32"
+
+  - name: "РЕАЛ: пустой file → доменная ошибка, донор не запускался"
+    input: { file: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_file, retryable: false }
+
+  - name: "РЕАЛ: несуществующий файл → missing_file"
+    # Отдельный кейс потому, что донор на таком входе ответил бы bad_file —
+    # «не удалось открыть файл». Опечатка в пути и битый файл — разные вещи.
+    input: { file: "fixtures/no-such-file.so" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: missing_file, retryable: false }
+
+  - name: "РЕАЛ: wall_timeout не число → платформенная ошибка"
+    input: { file: "fixtures/libfixture.so", wall_timeout: "быстро" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: "РЕАЛ: wall_timeout ≤ 0 → платформенная ошибка"
+    # Без проверки subprocess получил бы неположительный timeout и вернул бы
+    # TimeoutExpired: плагин отчитался бы «timeout, retryable» про вход,
+    # который повтором не чинится.
+    input: { file: "fixtures/libfixture.so", wall_timeout: 0 }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: "РЕАЛ: битый JSON входа → платформенная ошибка"
+    input_raw: "{не json"
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_input }
+
+  - name: "РЕАЛ: PYELFTOOLS_BIN на несуществующий путь → донор не запустился"
+    env: { PYELFTOOLS_BIN: "/nonexistent/pyelftools-bin" }
+    input: { file: "fixtures/libfixture.so" }
     expect:
       status: error
       exit_code: 1
       error: { code: pyelftools_not_installed }
 
-  - name: wall timeout → доменная, retryable
+  - name: "РЕАЛ: PYELFTOOLS_BIN на имя, которого нет в PATH → донор не запустился"
+    env: { PYELFTOOLS_BIN: "definitely_not_a_pyelftools_bin_xyz" }
+    input: { file: "fixtures/libfixture.so" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: pyelftools_not_installed }
+
+  # ── 2. мок: ветки отказа, которые нельзя вызвать у настоящего донора ────
+  - name: "МОК: разбор ELF32 без секций → ok, section_count 0"
+    env: { PYELFTOOLS_BIN: "mock_pyelftools.py", MOCK_ALT: "1" }
+    input: { file: "fixtures/libfixture.so" }
+    expect:
+      status: ok
+      exit_code: 0
+      output:
+        elf_class: "ELF32"
+        elf_type: "ET_REL"
+        machine: "EM_386"
+        section_count: 0
+        sections: []
+        libraries: []
+        parser_version: "0.33"
+
+  - name: "МОК: ответ без версии → платформенная ошибка, а не пустая строка"
+    # Разбор, приписанный неизвестной версии, хуже отсутствия разбора.
+    env: { PYELFTOOLS_BIN: "mock_pyelftools.py", MOCK_NO_VERSION: "1" }
+    input: { file: "fixtures/libfixture.so" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:version_unknown }
+
+  - name: "МОК: файл не ELF → доменная ошибка not_elf"
+    env: { PYELFTOOLS_BIN: "mock_pyelftools.py", MOCK_NOT_ELF: "1" }
+    input: { file: "fixtures/libfixture.so" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: not_elf, retryable: false }
+
+  - name: "МОК: битый ELF → доменная ошибка bad_file"
+    env: { PYELFTOOLS_BIN: "mock_pyelftools.py", MOCK_BAD_FILE: "1" }
+    input: { file: "fixtures/libfixture.so" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_file, retryable: false }
+
+  - name: "МОК: pyelftools не импортируется → доменная ошибка"
+    env: { PYELFTOOLS_BIN: "mock_pyelftools.py", MOCK_NO_MODULE: "1" }
+    input: { file: "fixtures/libfixture.so" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: pyelftools_not_installed }
+
+  - name: "МОК: wall timeout → доменная, retryable"
     env: { PYELFTOOLS_BIN: "mock_pyelftools.py", MOCK_SLEEP: "3" }
-    input: { file: "main.py", wall_timeout: 1 }
+    input: { file: "fixtures/libfixture.so", wall_timeout: 1 }
+    timeout: 20s
     expect:
       status: error
       exit_code: 1
       error: { code: timeout, retryable: true }
 
-  - name: сниппет без вывода → no_report
+  - name: "МОК: сниппет без вывода → no_report"
     env: { PYELFTOOLS_BIN: "mock_pyelftools.py", MOCK_NO_REPORT: "1" }
-    input: { file: "main.py" }
+    input: { file: "fixtures/libfixture.so" }
     expect:
       status: error
       exit_code: 1
-      error: { code: no_report, retryable: false }
+      error: { code: no_report }
 
-  - name: донор упал → tool_failed
+  - name: "МОК: донор упал → tool_failed"
     env: { PYELFTOOLS_BIN: "mock_pyelftools.py", MOCK_FAIL: "1" }
-    input: { file: "main.py" }
+    input: { file: "fixtures/libfixture.so" }
     expect:
       status: error
       exit_code: 1
       error: { code: tool_failed, retryable: false }
 
-  - name: битый JSON донора → платформенная ошибка
+  - name: "МОК: битый JSON донора → платформенная ошибка"
     env: { PYELFTOOLS_BIN: "mock_pyelftools.py", MOCK_BAD_REPORT: "1" }
-    input: { file: "main.py" }
+    input: { file: "fixtures/libfixture.so" }
     expect:
       status: error
       exit_code: 2
-      error: { code: "platform:bad_report" }
-
-  - name: битый JSON входа → платформенная ошибка
-    env: { PYELFTOOLS_BIN: "mock_pyelftools.py" }
-    input_raw: "{не json"
-    expect:
-      exit_code: 2
+      error: { code: platform:bad_report }

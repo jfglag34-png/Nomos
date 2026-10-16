@@ -1,136 +1,215 @@
-# Контракт-тесты altdns (mock altdns CLI, без сети и без пакета altdns).
+# Контракт-тесты altdns.
+#
+# Тесты разбиты на две группы, и различие между ними существенное.
+#
+# 1. РЕАЛЬНЫЙ ИНСТРУМЕНТ (кейсы без ALTDNS_BIN) — плагин запускает настоящий
+#    `python3 -m altdns` по-настоящему. Ожидаемые перестановки в этих кейсах
+#    сняты с донора, а не придуманы: 12 для www.example.com со словарём
+#    [dev, test], 6 для [dev], 26 с -n, 1 для example.com (у хоста без
+#    субдомена результат непустой — это видно только на живом доноре, потому
+#    что делит домен tldextract). Пока донор не установлен, кейсы падают —
+#    это правда, а не сбой теста.
+#
+# 2. МОК (кейсы с ALTDNS_BIN) — ветки отказа. Настоящий altdns нельзя
+#    детерминированно заставить упасть или зависнуть на конкретном входе, а
+#    «нет файла -o» и «битый отчёт» он в живую не отдаёт. Моделирует он
+#    ровно то, что отдаёт донор на проверенных входах, но НЕ проверяет, что
+#    донор ведёт себя так же, — поэтому он не может заменить группу 1.
+#
+# Фикстуры здесь не нужны: у altdns нет файлового входа. Фикстура этого
+# плагина — сам вектор входа (host + words), и группа 1 сверяет его с живым
+# выводом донора.
 tests:
-  - name: перестановки по словарю → дедуп + сортировка
-    env: { ALTDNS_BIN: "mock_altdns.py" }
+  # ── 1. реальный инструмент ───────────────────────────────────────────────
+  - name: "РЕАЛ: перестановки по словарю — точный состав и порядок"
+    # equals сравнивает массив целиком, вместе с порядком: порядок задаёт
+    # обёртка (сортировка поверх set() донора), и именно он проверяется.
     input: { host: "www.example.com", words: ["dev", "test"] }
+    timeout: 90s
     expect:
       status: ok
+      exit_code: 0
       output:
-        host: www.example.com
+        host: "www.example.com"
         total: 12
+        generator_version: "1.0.2"
         permutations:
-          - dev-www.example.com
-          - dev.www.example.com
-          - devwww.example.com
-          - test-www.example.com
-          - test.www.example.com
-          - testwww.example.com
-          - www-dev.example.com
-          - www-test.example.com
-          - www.dev.example.com
-          - www.test.example.com
-          - wwwdev.example.com
-          - wwwtest.example.com
+          equals:
+            - "dev-www.example.com"
+            - "dev.www.example.com"
+            - "devwww.example.com"
+            - "test-www.example.com"
+            - "test.www.example.com"
+            - "testwww.example.com"
+            - "www-dev.example.com"
+            - "www-test.example.com"
+            - "www.dev.example.com"
+            - "www.test.example.com"
+            - "wwwdev.example.com"
+            - "wwwtest.example.com"
 
-  - name: number_suffix → ещё и варианты с цифрами
-    env: { ALTDNS_BIN: "mock_altdns.py" }
+  - name: "РЕАЛ: хост без субдоменной метки → одна перестановка, а не пусто"
+    # example.com — это не «нет субдомена» в смысле донора: tldextract отдаёт
+    # пустой subdomain, и altdns всё равно дописывает слово сверху, то есть
+    # dev.example.com. Пустой массив здесь означал бы, что перестановки
+    # придумала обёртка, а не донор.
+    input: { host: "example.com", words: ["dev"] }
+    timeout: 90s
+    expect:
+      status: ok
+      exit_code: 0
+      output:
+        host: "example.com"
+        total: 1
+        permutations:
+          equals: ["dev.example.com"]
+
+  - name: "РЕАЛ: number_suffix → ещё и варианты с цифрами (26 штук)"
     input: { host: "www.example.com", words: ["dev"], number_suffix: true }
+    timeout: 90s
     expect:
       status: ok
       output:
-        host: www.example.com
         total: 26
         permutations:
-          contains: www-0.example.com
+          contains: "www-0.example.com"
 
-  - name: без words → дефолтный словарь
-    env: { ALTDNS_BIN: "mock_altdns.py" }
+  - name: "РЕАЛ: без words — дефолтный словарь обёртки (8 слов → 48)"
+    # Дефолт — политика обёртки (у донора -w обязателен), поэтому его состав
+    # зафиксирован тестом: «сменился дефолт» должно быть видно красным.
     input: { host: "www.example.com" }
+    timeout: 90s
     expect:
       status: ok
+      exit_code: 0
       output:
-        host: www.example.com
         total: 48
+        generator_version: "1.0.2"
         permutations: { type: array }
 
-  - name: пустой отчёт → ok, permutations []
-    env: { ALTDNS_BIN: "mock_altdns.py", MOCK_EMPTY: "1" }
-    input: { host: "www.example.com", words: ["dev"] }
+  - name: "РЕАЛ: wall_timeout числом доезжает до обёртки"
+    input: { host: "www.example.com", words: ["dev"], wall_timeout: 60 }
+    timeout: 90s
     expect:
       status: ok
       output:
-        host: www.example.com
-        total: 0
-        permutations: []
+        total: 6
 
-  - name: пустой host → доменная ошибка
-    env: { ALTDNS_BIN: "mock_altdns.py" }
+  - name: "РЕАЛ: пустой host → доменная ошибка, донор не запускался"
     input: { host: "   " }
     expect:
       status: error
       exit_code: 1
       error: { code: empty_host, retryable: false }
 
-  - name: words не массив → платформенная ошибка
-    env: { ALTDNS_BIN: "mock_altdns.py" }
+  - name: "РЕАЛ: words не массив → платформенная ошибка"
     input: { host: "www.example.com", words: "dev" }
     expect:
+      status: error
       exit_code: 2
       error: { code: platform:bad_words }
 
-  - name: number_suffix не bool → платформенная ошибка
-    env: { ALTDNS_BIN: "mock_altdns.py" }
+  - name: "РЕАЛ: number_suffix не bool → платформенная ошибка"
     input: { host: "www.example.com", number_suffix: "да" }
     expect:
+      status: error
       exit_code: 2
       error: { code: platform:bad_number_suffix }
 
-  - name: threads не число → платформенная ошибка
-    env: { ALTDNS_BIN: "mock_altdns.py" }
-    input: { host: "www.example.com", threads: "много" }
+  - name: "РЕАЛ: wall_timeout не число → платформенная ошибка"
+    input: { host: "www.example.com", wall_timeout: "не число" }
     expect:
+      status: error
       exit_code: 2
-      error: { code: platform:bad_threads }
+      error: { code: platform:bad_wall_timeout }
 
-  - name: altdns не установлен (путь)
+  - name: "РЕАЛ: wall_timeout ≤ 0 → платформенная ошибка"
+    # Без проверки здесь subprocess получил бы неположительный timeout и вернул
+    # TimeoutExpired, то есть плагин отчитался бы «timeout, retryable» про
+    # вход, который повтором не чинится. Раньше здесь стояло
+    # `float(data.get(...) or DEFAULT)`, и 0 молча превращался в 300.
+    input: { host: "www.example.com", wall_timeout: 0 }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: "РЕАЛ: битый JSON входа → платформенная ошибка"
+    input_raw: "{не json"
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_input }
+
+  - name: "РЕАЛ: ALTDNS_BIN на несуществующий путь → донор не установлен"
     env: { ALTDNS_BIN: "/nonexistent/altdns-bin" }
-    input: { host: "www.example.com" }
+    input: { host: "www.example.com", words: ["dev"] }
     expect:
       status: error
       exit_code: 1
       error: { code: altdns_not_installed, retryable: false }
 
-  - name: altdns не установлен (имя из PATH)
+  - name: "РЕАЛ: ALTDNS_BIN на имя, которого нет в PATH → донор не установлен"
     env: { ALTDNS_BIN: "definitely_not_an_altdns_bin_xyz" }
-    input: { host: "www.example.com" }
+    input: { host: "www.example.com", words: ["dev"] }
     expect:
       status: error
       exit_code: 1
       error: { code: altdns_not_installed }
 
-  - name: wall timeout → доменная, retryable
-    env: { ALTDNS_BIN: "mock_altdns.py", MOCK_SLEEP: "3" }
-    input: { host: "www.example.com", wall_timeout: 1 }
-    expect:
-      status: error
-      exit_code: 1
-      error: { code: timeout, retryable: true }
-
-  - name: altdns без файла перестановок → доменная ошибка
-    env: { ALTDNS_BIN: "mock_altdns.py", MOCK_NO_REPORT: "1" }
-    input: { host: "www.example.com" }
-    expect:
-      status: error
-      exit_code: 1
-      error: { code: no_report }
-
-  - name: altdns упал → tool_failed
+  # ── 2. мок: ветки отказа, которые нельзя вызвать у настоящего донора ────
+  - name: "МОК: донор упал → tool_failed, а не «пусто»"
+    # Непустой файл -o при ненулевом коде выхода — это обрыв, а не результат.
     env: { ALTDNS_BIN: "mock_altdns.py", MOCK_FAIL: "1" }
-    input: { host: "www.example.com" }
+    input: { host: "www.example.com", words: ["dev"] }
     expect:
       status: error
       exit_code: 1
       error: { code: tool_failed, retryable: false }
 
-  - name: отчёт не в UTF-8 → платформенная ошибка
-    env: { ALTDNS_BIN: "mock_altdns.py", MOCK_BAD_REPORT: "1" }
-    input: { host: "www.example.com" }
+  - name: "МОК: exit 1 с «No module named altdns» → донор не установлен"
+    # `python3 -m altdns` без пакета даёт не FileNotFoundError, а exit 1 и
+    # traceback. Без этой ветки человек получил бы «altdns упал» вместо совета
+    # «поставьте пакет».
+    env: { ALTDNS_BIN: "mock_altdns.py", MOCK_MISSING_MODULE: "1" }
+    input: { host: "www.example.com", words: ["dev"] }
     expect:
+      status: error
+      exit_code: 1
+      error: { code: altdns_not_installed }
+
+  - name: "МОК: нет файла -o → no_report"
+    env: { ALTDNS_BIN: "mock_altdns.py", MOCK_NO_REPORT: "1" }
+    input: { host: "www.example.com", words: ["dev"] }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: "МОК: пустой файл -o → ok, ноль перестановок (не ошибка)"
+    env: { ALTDNS_BIN: "mock_altdns.py", MOCK_EMPTY: "1" }
+    input: { host: "www.example.com", words: ["dev"] }
+    expect:
+      status: ok
+      exit_code: 0
+      output:
+        total: 0
+        permutations: []
+        generator_version: "1.0.2"
+
+  - name: "МОК: отчёт не в UTF-8 → платформенная ошибка"
+    env: { ALTDNS_BIN: "mock_altdns.py", MOCK_BAD_REPORT: "1" }
+    input: { host: "www.example.com", words: ["dev"] }
+    expect:
+      status: error
       exit_code: 2
       error: { code: platform:bad_report }
 
-  - name: битый JSON входа → платформенная ошибка
-    env: { ALTDNS_BIN: "mock_altdns.py" }
-    input_raw: "{не json"
+  - name: "МОК: wall timeout → доменная, retryable"
+    env: { ALTDNS_BIN: "mock_altdns.py", MOCK_SLEEP: "3" }
+    input: { host: "www.example.com", words: ["dev"], wall_timeout: 1 }
+    timeout: 20s
     expect:
-      exit_code: 2
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }

@@ -1,18 +1,24 @@
 id: pyelftools
-version: 0.1.0
+version: 0.2.0
 platform_api: "^0.1"
 description: >
-  pyelftools (eliben/pyelftools) — разбор ELF: класс (ELF32/ELF64), секции и
-  список подключаемых библиотек DT_NEEDED. У донора нет CLI, поэтому плагин
-  запускает тот же интерпретатор с фиксированным сниппетом (-c), который
-  импортирует elftools и печатает JSON (паттерн C). Библиотека ставится
-  отдельно: pip install pyelftools.
+  pyelftools (eliben/pyelftools) — разбор ELF: класс (ELF32/ELF64), тип и
+  машина по словарям донора, секции и список подключаемых библиотек DT_NEEDED.
+  У донора нет ни CLI, ни консольного скрипта (проверено: у пакета 0.33 нет ни
+  одного entry point), поэтому плагин запускает тот же интерпретатор с
+  фиксированным сниппетом (-c), который импортирует elftools и печатает JSON
+  (паттерн C). Фикстуры в fixtures/ собраны скриптом make_elf.py и проверены
+  тремя независимыми разборщиками: readelf (binutils), pyelftools и LIEF.
+  Пин: pip install pyelftools==0.33
 author: "community · wedra showcase (reverse engineering)"
 
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; пакет pyelftools — отдельно (pip install pyelftools)
+  # Пин донора в runtime.requires, а не пометка «поставьте отдельно»: без него
+  # pip-пакет никто не ставил, плагин числился готовым в UI и падал на первом
+  # же запуске.
+  requires: ["pyelftools==0.33"]
 
 input:
   file:
@@ -25,13 +31,44 @@ input:
     optional: true      # общий лимит рана, секунды (default 300)
 
 output:
+  # Строка, которую дал оператор. Абсолютная форма ничего бы не добавила, а
+  # привязала бы вывод и журнал рана к машине.
   file:      { type: string }
+  # Класс ИЗ СЛОВАРЯ ДОНОРА ("ELF64"/"ELF32"). Пустая строка означала бы «эта
+  # версия pyelftools не знает такой класс».
   elf_class: { type: string }
-  sections:  { type: array }
+  # Тип объекта по словарю донора: ET_DYN (shared object), ET_EXEC, ET_REL
+  # (перемещаемый объектник), ET_CORE.
+  elf_type:  { type: string }
+  # Машина по словарю донора: EM_X86_64, EM_386, EM_AARCH64… Числовой код
+  # машины в том же словаре отсутствует, поэтому таблицы «код → имя» в
+  # обёртке нет: её таблица устарела бы первой.
+  machine:   { type: string }
+  # Точка входа (e_entry). Для ET_DYN это смещение от базы загрузки, которую
+  # выбирает загрузчик, — число само по себе ничего не значит, но позволяет
+  # отличить один образ от другого при разборе.
+  entry:     { type: number }
+  # Секция = {name, type, flags, size, addr}.
+  #   type  — имя из словаря донора (SHT_PROGBITS, SHT_DYNAMIC, SHT_NOBITS…).
+  #   flags — sh_flags ЧИСЛОМ, как в файле. У pyelftools нет словаря «бит →
+  #          имя» для секций (SH_FLAGS — набор констант, не карта), поэтому
+  #          разложение на A/W/X было бы второй правдой обёртки.
+  #   size  — sh_size; для .bss (SHT_NOBITS) это размер В ПАМЯТИ, в файле там
+  #          ничего нет.
+  sections: { type: array }
+  # DT_NEEDED по порядку тегов в .dynamic — то, что библиотека подгружает.
   libraries: { type: array }
-  count:     { type: number }
+  section_count: { type: number }
+  # Версия донора (его собственный elftools.__version__). Без неё «секций
+  # нет» неотличимо от «эта версия не разобрала таблицу секций».
+  parser_version: { type: string, format: text }
 
 permissions:
-  network: []
-  filesystem: read      # читает только указанный пользователем ELF-файл
+  network: []            # разбор локальных байтов: сеть не нужна. Проверено
+                        # запуском с заблокированными socket.connect,
+                        # connect_ex, create_connection, getaddrinfo и
+                        # gethostbyname — тот же exit 0, тот же разбор и НОЛЬ
+                        # попыток соединения. У донора настоящей сети нет: он
+                        # читает файл.
+  filesystem: read       # читает только указанный пользователем файл
   secrets: []

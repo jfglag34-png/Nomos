@@ -1,124 +1,287 @@
-# Контракт-тесты oletools (mock CLI olevba, без пакета oletools и без сети).
+# Контракт-тесты oletools.
+#
+# Тесты разбиты на две группы, и различие между ними существенное.
+#
+# 1. РЕАЛЬНЫЙ ИНСТРУМЕНТ (кейсы без OLETOOLS_BIN) — плагин запускает тот же
+#    `python3 -m oletools.olevba -j -a` на настоящем olevba 0.60.2 по фикстурам
+#    из fixtures/ (собраны fixtures/make_ole.py: это настоящие CFB-контейнеры с
+#    VBA-проектом, собранные с нуля). Эти кейсы и есть доказательство, что порты
+#    и значения взяты из ответа донора: четыре находки AutoExec/Suspicious и
+#    имя макроса Module1.bas приходят оттуда же, а не из словаря обёртки.
+#    Пока донор не установлен, кейсы падают — это правда, а не сбой теста.
+#
+# 2. МОК (кейсы с OLETOOLS_BIN) — ветки отказа, которые настоящим донором не
+#    вызвать: зависнуть или отдать битый ответ он не может. Мок повторяет рамку
+#    stdout настоящего olevba, включая предупреждение о кодировке.
+#
+# Фикстуры лежат в fixtures/ и передаются относительными путями: подпроцесс
+# плагина стартует в каталоге плагина, абсолютный путь был бы привязан к
+# машине. Именно поэтому в subfilename ожидается «macro.doc», а не путь: донор
+# получает в argv только имя файла (см. комментарий про cwd в main.py).
 tests:
-  - name: документ с макросами → macros + findings
-    env: { OLETOOLS_BIN: "mock_olevba.py" }
-    input: { file: "main.py" }
+  # ── 1. реальный инструмент ───────────────────────────────────────────────
+  - name: "РЕАЛ: документ с макросом → модуль, поток OLE и находки донора"
+    input: { file: "fixtures/macro.doc" }
+    timeout: 90s
     expect:
       status: ok
+      exit_code: 0
       output:
-        file: { contains: "oletools" }
-        count: 3
-        macros:
-          equals:
-            - { vba_filename: Module1, subfilename: main.py, ole_stream: "VBA/dir" }
-            - { vba_filename: ThisDocument, subfilename: main.py, ole_stream: "VBA/ThisDocument" }
+        file: "fixtures/macro.doc"
+        # Тип из СЛОВАРЯ донора, а не из таблицы обёртки.
+        file_type: "OLE"
+        tool_version: "0.60.2"
+        count: 4
+        # equals сравнивает массив целиком вместе с порядком: порядок находок
+        # задаёт донор (сначала autoexec, потом suspicious), и «находок 4»
+        # прошло бы при выпавшей.
         findings:
           equals:
-            - { type: AutoExec, keyword: AutoOpen, description: "Auto-executable macro" }
-            - { type: Suspicious, keyword: Shell, description: "May start a process" }
-            - { type: IOC, keyword: "http://malware.example.invalid/drop", description: URL }
+            - { type: "AutoExec", keyword: "AutoOpen", description: "Runs when the Word document is opened" }
+            - { type: "Suspicious", keyword: "Shell", description: "May run an executable file or a system command" }
+            - { type: "Suspicious", keyword: "vbHide", description: "May run an executable file or a system command" }
+            - { type: "Suspicious", keyword: "powershell", description: "May run PowerShell commands" }
+        macros:
+          equals:
+            - { vba_filename: "Module1.bas", subfilename: "macro.doc", ole_stream: "VBA/Module1" }
 
-  - name: макросов нет → ok, пустые массивы
-    env: { OLETOOLS_BIN: "mock_olevba.py", MOCK_NO_MACROS: "1" }
-    input: { file: "main.py" }
+  - name: "РЕАЛ: тот же документ, но ищем только AutoExec — порядок и счёт"
+    # count против equals: ровно четыре находки, и AutoOpen — первая.
+    input: { file: "fixtures/macro.doc" }
+    timeout: 90s
     expect:
       status: ok
       output:
-        count: 0
+        count: 4
+        findings:
+          contains: { type: "AutoExec", keyword: "AutoOpen", description: "Runs when the Word document is opened" }
+
+  - name: "РЕАЛ: документ без макросов → ok и ноль находок (не ошибка)"
+    # analysis у донора при этом null, а не []: обёртка обязана отличать
+    # «находок нет» от «анализа не было» и не выдумывать пустой список в
+    # сообщении об ошибке.
+    input: { file: "fixtures/nomacros.doc" }
+    timeout: 90s
+    expect:
+      status: ok
+      exit_code: 0
+      output:
+        file: "fixtures/nomacros.doc"
+        file_type: "OLE"
         macros: []
         findings: []
+        count: 0
+        tool_version: "0.60.2"
 
-  - name: пустой file → доменная ошибка
-    env: { OLETOOLS_BIN: "mock_olevba.py" }
+  - name: "РЕАЛ: наружу не уходят исходник макроса, container и его настройки"
+    # Всё это есть в ответе донора, и всё это решено не отдавать: code — это
+    # содержимое документа (в журнал рана и отчёты оно попадает как данные),
+    # container — внутренний путь вложенного OLE, do_deobfuscate/show_pcode —
+    # настройки запуска. absent проверяет границу EnforceOutput, то есть то,
+    # что реально уходит в ран; сверху обёртка режет их сама, по списку
+    # разрешённых имён.
+    input: { file: "fixtures/macro.doc" }
+    timeout: 90s
+    expect:
+      status: ok
+      output:
+        code: { absent: true }
+        container: { absent: true }
+        do_deobfuscate: { absent: true }
+        show_pcode: { absent: true }
+        python_version: { absent: true }
+        url: { absent: true }
+
+  - name: "РЕАЛ: обрезанный документ → tool_failed, а не «макросов нет»"
+    # Настоящий olevba на битом файле печатает в массив объект {"type": "msg"}
+    # и уходит с кодом 8. Такой «репорт» нельзя выдавать за результат: иначе
+    # битый документ выглядел бы как чистый.
+    input: { file: "fixtures/truncated.doc" }
+    timeout: 90s
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: "РЕАЛ: wall_timeout числом доезжает до обёртки"
+    input: { file: "fixtures/nomacros.doc", wall_timeout: 60 }
+    timeout: 120s
+    expect:
+      status: ok
+      output: { count: 0 }
+
+  - name: "РЕАЛ: пустой file → доменная ошибка, донор не запускался"
     input: { file: "   " }
     expect:
       status: error
       exit_code: 1
-      error: { code: empty_file }
+      error: { code: empty_file, retryable: false }
 
-  - name: несуществующий файл → доменная ошибка
-    env: { OLETOOLS_BIN: "mock_olevba.py" }
-    input: { file: "/nonexistent/olevba-sample.docm" }
+  - name: "РЕАЛ: несуществующий файл → доменная ошибка"
+    input: { file: "/nonexistent/oletools-fixture.doc" }
     expect:
       status: error
       exit_code: 1
       error: { code: missing_file, retryable: false }
 
-  - name: на входе каталог, а не файл → доменная ошибка
-    env: { OLETOOLS_BIN: "mock_olevba.py" }
-    input: { file: "." }
+  - name: "РЕАЛ: на входе каталог, а не файл → missing_file"
+    input: { file: "fixtures" }
     expect:
       status: error
       exit_code: 1
       error: { code: missing_file }
 
-  - name: wall_timeout не число → платформенная ошибка
-    env: { OLETOOLS_BIN: "mock_olevba.py" }
-    input: { file: "main.py", wall_timeout: "быстро" }
+  - name: "РЕАЛ: битый JSON входа → платформенная ошибка"
+    input_raw: "{не json"
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_input }
+
+  - name: "РЕАЛ: wall_timeout не число → платформенная ошибка"
+    input: { file: "fixtures/macro.doc", wall_timeout: "быстро" }
     expect:
       status: error
       exit_code: 2
       error: { code: platform:bad_wall_timeout }
 
-  - name: olevba не установлен (путь)
+  - name: "РЕАЛ: wall_timeout ≤ 0 → платформенная ошибка"
+    # Без проверки здесь subprocess получил бы неположительный timeout и
+    # вернул TimeoutExpired, то есть плагин отчитался бы «timeout, retryable»
+    # про вход, который повтором не чинится.
+    input: { file: "fixtures/macro.doc", wall_timeout: 0 }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: "РЕАЛ: OLETOOLS_BIN на несуществующий путь → донор не запустился"
     env: { OLETOOLS_BIN: "/nonexistent/olevba-bin" }
-    input: { file: "main.py" }
+    input: { file: "fixtures/macro.doc" }
     expect:
       status: error
       exit_code: 1
       error: { code: oletools_not_installed, retryable: false }
 
-  - name: olevba не установлен (имя из PATH)
+  - name: "РЕАЛ: OLETOOLS_BIN на имя, которого нет в PATH → донор не запустился"
     env: { OLETOOLS_BIN: "definitely_not_an_olevba_bin_xyz" }
-    input: { file: "main.py" }
+    input: { file: "fixtures/macro.doc" }
     expect:
       status: error
       exit_code: 1
       error: { code: oletools_not_installed }
 
-  - name: wall timeout → доменная, retryable
+  # ── 2. мок: ветки отказа, которые нельзя вызвать у настоящего донора ────
+  - name: "МОК: wall timeout → доменная, retryable"
     env: { OLETOOLS_BIN: "mock_olevba.py", MOCK_SLEEP: "3" }
-    input: { file: "main.py", wall_timeout: 1 }
+    input: { file: "fixtures/macro.doc", wall_timeout: 1 }
     timeout: 20s
     expect:
       status: error
       exit_code: 1
       error: { code: timeout, retryable: true }
 
-  - name: olevba без репорта → доменная ошибка
-    env: { OLETOOLS_BIN: "mock_olevba.py", MOCK_NO_REPORT: "1" }
-    input: { file: "main.py" }
-    expect:
-      status: error
-      exit_code: 1
-      error: { code: no_report }
-
-  - name: битый JSON-репорт → платформенная ошибка
-    env: { OLETOOLS_BIN: "mock_olevba.py", MOCK_BAD_REPORT: "1" }
-    input: { file: "main.py" }
-    expect:
-      status: error
-      exit_code: 2
-      error: { code: platform:bad_report }
-
-  - name: olevba не смог разобрать документ → платформенная ошибка
-    env: { OLETOOLS_BIN: "mock_olevba.py", MOCK_BROKEN_FILE: "1" }
-    input: { file: "main.py" }
-    expect:
-      status: error
-      exit_code: 2
-      error: { code: platform:bad_report }
-
-  - name: olevba упал → доменная ошибка
+  - name: "МОК: донор упал с кодом 8 → tool_failed"
     env: { OLETOOLS_BIN: "mock_olevba.py", MOCK_FAIL: "1" }
-    input: { file: "main.py" }
+    input: { file: "fixtures/macro.doc" }
     expect:
       status: error
       exit_code: 1
       error: { code: tool_failed, retryable: false }
 
-  - name: битый JSON входа → платформенная ошибка
-    env: { OLETOOLS_BIN: "mock_olevba.py" }
-    input_raw: "{не json"
+  - name: "МОК: пустой stdout → no_report"
+    env: { OLETOOLS_BIN: "mock_olevba.py", MOCK_NO_REPORT: "1" }
+    input: { file: "fixtures/macro.doc" }
     expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: "МОК: оборванный JSON → платформенная ошибка"
+    env: { OLETOOLS_BIN: "mock_olevba.py", MOCK_BAD_REPORT: "1" }
+    input: { file: "fixtures/macro.doc" }
+    expect:
+      status: error
       exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: "МОК: MetaInformation без version → платформенная ошибка"
+    # Находки без указания версии донора непригодны: неизвестно, каким набором
+    # правил они порождены. Пустой строкой это не подменяется.
+    env: { OLETOOLS_BIN: "mock_olevba.py", MOCK_NO_VERSION: "1" }
+    input: { file: "fixtures/macro.doc" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: "МОК: документ не разобран → платформенная ошибка"
+    env: { OLETOOLS_BIN: "mock_olevba.py", MOCK_BROKEN_FILE: "1" }
+    input: { file: "fixtures/macro.doc" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: "МОК: analysis не список и не null → платформенная ошибка"
+    # null analysis — это «макросов нет» (так отдаёт настоящий донор на
+    # nomacros.doc, см. кейс выше), и это НЕ ошибка. А объект вместо списка —
+    # другая форма ответа: молча выдать ноль находков значило бы выдать
+    # «проверили и не нашли» вместо «не поняли, что вернули».
+    env: { OLETOOLS_BIN: "mock_olevba.py", MOCK_NO_ANALYSIS_LIST: "1" }
+    input: { file: "fixtures/macro.doc" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: "МОК: предупреждение о кодировке в stderr → разбор не спотыкается"
+    # Настоящий olevba такое предупреждение печатает, и на проверенной машине
+    # оно уходит в stderr (проверено: с 2>/dev/null stdout остаётся чистым
+    # JSON). Обёртка обязана отделывать stderr донора молча.
+    env: { OLETOOLS_BIN: "mock_olevba.py", MOCK_ENCODING_WARNING: "1" }
+    input: { file: "fixtures/macro.doc" }
+    expect:
+      status: ok
+      output:
+        file_type: "OLE"
+        count: 4
+
+  - name: "МОК: та же строка, но в stdout, перед '[' → массив всё равно разобран"
+    # Куда уходит предупреждение, зависит от кодировки консоли, а не от
+    # контракта донора: сегодня stderr, завтра stdout. Разбор обязан искать
+    # первую скобку, иначе строка, которая сегодня безобидна, завтра превратит
+    # разобранный документ в «репорт не разбирается».
+    env: { OLETOOLS_BIN: "mock_olevba.py", MOCK_STDOUT_NOISE: "1" }
+    input: { file: "fixtures/macro.doc" }
+    expect:
+      status: ok
+      output:
+        file_type: "OLE"
+        count: 4
+
+  - name: "МОК: документ без макросов → ok с пустыми массивами"
+    env: { OLETOOLS_BIN: "mock_olevba.py", MOCK_NO_MACROS: "1" }
+    input: { file: "fixtures/nomacros.doc" }
+    expect:
+      status: ok
+      exit_code: 0
+      output:
+        macros: []
+        findings: []
+        count: 0
+
+  - name: "МОК: исходник макроса в ответе донора наружу не уходит"
+    # Мок кладёт в code настоящий текст макроса (в обычном режиме -a он null,
+    # но поле в ответе есть всегда). Обёртка не должна ни выдать его, ни
+    # молча превратить в «находку»: это содержимое документа, а не анализ.
+    env: { OLETOOLS_BIN: "mock_olevba.py", MOCK_CODE: "1" }
+    input: { file: "fixtures/macro.doc" }
+    expect:
+      status: ok
+      output:
+        count: 4
+        code: { absent: true }
+        macros:
+          equals:
+            - { vba_filename: "Module1.bas", subfilename: "macro.doc", ole_stream: "VBA/Module1" }
