@@ -178,7 +178,7 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/altdns
     version: v0.33c
-    commit: ec567e4fb25faa732784827e0bab6c42f80e63bd
+    commit: 901d82c6faa228dae47439ef7e5e9db0fd212480
     description: "altdns (infosec-au) — генерация перестановок поддоменов по словарю, полностью офлайн. pip install py-altdns."
 
   arjun:
@@ -248,7 +248,7 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/dirsearch
     version: v0.33c
-    commit: ec567e4fb25faa732784827e0bab6c42f80e63bd
+    commit: 901d82c6faa228dae47439ef7e5e9db0fd212480
     description: "dirsearch (maurosoria) — брутфорс директорий и файлов, JSON-отчёт. pip install dirsearch."
 
   dnsrecon:
@@ -381,7 +381,7 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/lief
     version: v0.33c
-    commit: ba824854f53311c1fd2d12f9f74d852b5f5577a4
+    commit: 901d82c6faa228dae47439ef7e5e9db0fd212480
     description: "LIEF (LIEF-project) — универсальный разбор бинарников PE/ELF/Mach-O, паттерн C. pip install lief."
 
   linkfinder:
@@ -402,7 +402,7 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/msoffcrypto_tool
     version: v0.33c
-    commit: ba824854f53311c1fd2d12f9f74d852b5f5577a4
+    commit: 901d82c6faa228dae47439ef7e5e9db0fd212480
     description: "msoffcrypto-tool (nolze) — проверка/снятие пароля офисного документа; пароль из MSOFFCRYPTO_PASSWORD. pip install msoffcrypto-tool."
 
   nosqlmap:
@@ -416,7 +416,7 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/oletools
     version: v0.33c
-    commit: ba824854f53311c1fd2d12f9f74d852b5f5577a4
+    commit: 901d82c6faa228dae47439ef7e5e9db0fd212480
     description: "oletools (decalage2) — анализ макросов в офисных документах, JSON-вывод olevba -j. pip install oletools."
 
   otx_pulse:
@@ -451,7 +451,7 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/pyelftools
     version: v0.33c
-    commit: ba824854f53311c1fd2d12f9f74d852b5f5577a4
+    commit: 901d82c6faa228dae47439ef7e5e9db0fd212480
     description: "pyelftools (eliben) — разбор ELF: класс, секции, импортируемые библиотеки, паттерн C. pip install pyelftools."
 
   python_whois:

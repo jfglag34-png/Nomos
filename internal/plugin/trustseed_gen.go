@@ -19,7 +19,7 @@ var builtinTrusted = map[string][]string{
 		"sha256:3550f163bd1351a6797344def3200bc60bff28ceb2b942a707354b2a6444a166",
 	},
 	"altdns": {
-		"sha256:b60367d5498fb8ff721892742f8ac65c94ee86661f8c20c47318127ffefa9fe1",
+		"sha256:b878aedcfa49cb8bc30244b3165b760aef9c6e9776871041aadb89f18d01db71",
 	},
 	"arjun": {
 		"sha256:87f207deb135861fec364490c7cb5be9ab26b439f9ef230f1af880581e47ea78",
@@ -70,7 +70,7 @@ var builtinTrusted = map[string][]string{
 		"sha256:11c0893798173596bc27290a166e6f82331d940a4615173e7e5886847f7c36cf",
 	},
 	"dirsearch": {
-		"sha256:d0c25eef85035f85d44aa8a209ebf0dc186b8d64adbe25747f478b6fd164a3a2",
+		"sha256:b8b15cea6866c0144df075f1cf6f3485a45cdb47d28c29a13bfb29d5cf0f17c1",
 	},
 	"disposable_checker": {
 		"sha256:84cc805f04d72deb42db0757f2ec3e92b83dab130af52cff53cdba3f402bce49",
@@ -169,7 +169,7 @@ var builtinTrusted = map[string][]string{
 		"sha256:cb62a45f4edf47a7898b6522c4dc596ba236b719e44bb6d274a7e98b3aa72026",
 	},
 	"lief": {
-		"sha256:3d67970027ed86e89ba4080cdb861f177be85707e7b4ea231c7cd9bfff676901",
+		"sha256:a0d91c9419787418b4e29123892b041f38adde7c79c0423f596cafd3a3587d80",
 	},
 	"linkfinder": {
 		"sha256:4221e871b01458d947864a304b989e96263d03288a0ab57e779f417ea2792a38",
@@ -190,13 +190,13 @@ var builtinTrusted = map[string][]string{
 		"sha256:266e4ab92115a7b8bab1b75edf8b4340dc911d5a14723bf02bc5bb53d2360300",
 	},
 	"msoffcrypto_tool": {
-		"sha256:11fe1032b7693ddcc54bd40f1900515a2137873bad5c44cf66fbc274ecf72c3d",
+		"sha256:d811529974f1dbf99c1652ebae526452bd8b9349f40b8606ed42f0d9077bf64c",
 	},
 	"nosqlmap": {
 		"sha256:4af8531f3590815fb627a7415323c12fcb4200b81e01fd811f59378fa96a68bb",
 	},
 	"oletools": {
-		"sha256:f21638cfd60a09741e9894fff6d188ab7c340896be0a5cd963bb5f6c5cd7d916",
+		"sha256:d4de0a9016c6f175286d4241300b0d85a040cc42a4aa12c15f0b6cbc53f0f861",
 	},
 	"otx_pulse": {
 		"sha256:00348f922dccc1f50ee587a375b13776a326ab75d9a89852006889292b339f6b",
@@ -223,7 +223,7 @@ var builtinTrusted = map[string][]string{
 		"sha256:12be80b0981cc51ce97cec465f030b08c3a3e6701ccab7c3d7f5b21814d6a9c6",
 	},
 	"pyelftools": {
-		"sha256:c1998b7dee4ea954b2d2c0b20ad9fe05ce7d7a56ea512ed624fc887bf07d4978",
+		"sha256:6ab9bf40ca39a9a493ad159e6fd705f6c380163ebe349d3266e045863209a08e",
 	},
 	"python_whois": {
 		"sha256:f9e517b6fcd97b3b885093ffe9a1177e8b3adcb50ef85ef4bf7a77af7dd492f1",
