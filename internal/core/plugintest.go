@@ -44,8 +44,25 @@ type Expectation struct {
 	Error    *ErrorExpectation      `yaml:"error"`
 }
 
+// TestService — декларативная подготовка окружения ДО кейсов (см.
+// plugintest_service.go). Сегодня единственный тип — локальный HTTP-сервер:
+//
+//	services:
+//	  - type: http
+//	    root: fixtures/site
+//	    base_url: "{{base_url}}"
+//
+// Поля нет намеренно: произвольная команда в файле тестов — это запуск кода по
+// описанию, а не по доверию оператора. Подготовить что-то ещё — отдельная задача.
+type TestService struct {
+	Type    string `yaml:"type"`     // http — единственный поддерживаемый тип
+	Root    string `yaml:"root"`     // каталог, который отдаётся (от каталога плагина)
+	BaseURL string `yaml:"base_url"` // шаблон: имя плейсхолдера, подставляемого в кейсы
+}
+
 type PluginTestFile struct {
-	Tests []PluginTestCase `yaml:"tests"`
+	Services []TestService    `yaml:"services"` // опционально; без него поведение прежнее
+	Tests    []PluginTestCase `yaml:"tests"`
 }
 
 // Матчеры для полей output:
@@ -369,12 +386,31 @@ func RunPluginTests(dir, specPath string, quiet bool) (passed, failed int, err e
 			m.Permissions.Secrets)
 	}
 
-	for _, tc := range spec.Tests {
-		name := tc.Name
-		if name == "" {
-			name = "(без имени)"
+	// Окружение готовится ОДИН раз на прогон и до первого кейса: сервис не
+	// должен подниматься и гаситься на каждый кейс, а его ошибки (нет root,
+	// неизвестный тип, неизвестный плейсхолдер) должны останавливать прогон
+	// целиком, а не на середине. Close в defer — сервис не переживёт прогон,
+	// даже если кейс упал.
+	svcs, err := startTestServices(dir, spec.Services, quiet)
+	if err != nil {
+		return 0, 0, fmt.Errorf("%s: %w", specPath, err)
+	}
+	defer svcs.Close()
+
+	cases := make([]PluginTestCase, 0, len(spec.Tests))
+	for i, tc := range spec.Tests {
+		prepared, err := svcs.prepareCase(tc, i+1)
+		if err != nil {
+			return 0, 0, fmt.Errorf("%s: %w", specPath, err)
 		}
-		res := runCase(ctx, m, PluginTestCase{Timeout: tc.Timeout, Env: tc.Env, Input: tc.Input, InputRaw: tc.InputRaw, Expect: tc.Expect, Name: name})
+		if prepared.Name == "" {
+			prepared.Name = "(без имени)"
+		}
+		cases = append(cases, prepared)
+	}
+
+	for _, tc := range cases {
+		res := runCase(ctx, m, tc)
 		printCase(res, quiet)
 		if res.Pass {
 			passed++

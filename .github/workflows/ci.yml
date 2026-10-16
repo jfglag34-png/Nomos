@@ -96,10 +96,17 @@ jobs:
       # `detect-secrets`, и без пакета эти кейсы падают. Пин — тот же, что в
       # runtime.requires плагина; молча пропустить его нельзя, иначе «зелёный»
       # CI будет означать «донор не установлен, тесты не проверялись».
+      # dirsearch — третий в этом списке и первый, чьи живые кейсы ходят по
+      # сети: его plugin.test.yaml поднимает локальный сервис (services в
+      # plugin.test.yaml) и сканирует его настоящим dirsearch, ожидая точные
+      # путь/статус/размер. Пин задан здесь, а не в requirements.lock, потому что
+      # плагин объявляет донора как «ставится отдельно» (runtime.requires: []) —
+      # менять это объявление здесь нечем.
       - name: plugin regression tests
         run: |
           python3 -m pip install --disable-pip-version-check -r plugins/community/ssl_info/requirements.lock
           python3 -m pip install --disable-pip-version-check -r plugins/community/detect_secrets/requirements.lock
+          python3 -m pip install --disable-pip-version-check dirsearch==0.5.0
           python3 -m unittest discover -s tests/plugins -v
       - name: wedra check (fmt, vet, lint, mod, versions, errcodes, schemas, supply, build, test, conformance, mcp, pipelines, plugins, registry)
         run: go run ./cmd/wedra check --race --timeout=720

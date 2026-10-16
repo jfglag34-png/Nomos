@@ -91,6 +91,12 @@ def main():
     wordlist = str(data.get("wordlist") or "").strip()
     if wordlist and not os.path.isfile(wordlist):
         return fail("missing_wordlist", f"файл словаря не найден: {wordlist}")
+    if wordlist:
+        # Относительный путь проверяется от каталога плагина (cwd процесса), а
+        # dirsearch поедет с cwd во временную папку: отдавать ему относительный
+        # путь — значит получить «words.txt does not exist» на живом доноре.
+        # Абсолютным путём файл проверяется и передаётся одинаково.
+        wordlist = os.path.abspath(wordlist)
 
     raw_threads = data.get("threads")
     if raw_threads is None or raw_threads == "":

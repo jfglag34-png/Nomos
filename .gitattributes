@@ -20,5 +20,18 @@
 *.jpeg binary
 *.exe binary
 *.dll binary
+# ELF-фикстуры pyelftools (собраны fixtures/make_elf.py) и ELF-фикстуры lief:
+# без этих строк правило *.txt/*.py не заденет их, но text=auto на *.o и *.so
+# пробует трактовать файл как текст — а там нули в заголовке.
+*.so binary
+*.o binary
 *.zip binary
 *.db binary
+# Фикстуры msoffcrypto_tool (fixtures/make_office.py: plain.docx и
+# encrypted.docx, второй — зашифрованный CFB) и oletools
+# (fixtures/make_ole.py: macro.doc, nomacros.doc, truncated.doc — контейнеры
+# CFB). Для *.doc правило *.txt/*.py не сработало бы, но text=auto на zip и на
+# CFB всё равно пробует трактовать файл как текст: в заголовке zip нули, в
+# первых байтах CFB — \xd0\xcf\x11\xe0, и без этих строк git такой файл портит.
+*.docx binary
+*.doc binary

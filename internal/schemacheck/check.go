@@ -207,22 +207,60 @@ func CheckRepo(repo string) (string, error) {
 	if len(allUnver) > 0 {
 		// Сообщение одно и то же на каждый файл, а правило — свойство схемы.
 		// Без дедупликации отчёт в 37 строк говорил бы одно и то же 37 раз.
-		uniq := map[string]bool{}
-		for _, u := range allUnver {
-			uniq[u] = true
-		}
-		list := make([]string, 0, len(uniq))
-		for u := range uniq {
-			list = append(list, u)
-		}
-		sort.Strings(list)
 		b.WriteString("\nнепроверяемое здесь правило (схема корректна для полного валидатора," +
 			"\nно движок Go не берёт регулярку; в коде это правило обеспечено процедурно):")
-		for _, u := range list {
+		for _, u := range dedupNotes(allUnver) {
 			b.WriteString("\n    " + u)
 		}
 	}
+
+	// 4. Файлы контракт-тестов плагинов. Отдельная схема, потому что контракт
+	//    другой: у plugin.test.yaml своя схема (plugin.test.schema.json), и
+	//    неизвестное поле в нём — тоже ошибка, как в манифесте: загрузчик
+	//    читает файл с KnownFields(true), а тихо проигнорированный `servcies`
+	//    выглядел бы как «сервис есть», когда его нет.
+	//
+	//    Набор тот же, что у манифестов (plugins/* и plugins/*/*): это то, что
+	//    реально лежит в репозитории и что гоняет conformance.
+	tn, err := checkDocs(repo, "plugin.test.schema.json",
+		filepath.Join(repo, "plugins", "*", "plugin.test.yaml"), false)
+	if err != nil {
+		return b.String(), err
+	}
+	tn2, err := checkDocs(repo, "plugin.test.schema.json",
+		filepath.Join(repo, "plugins", "*", "*", "plugin.test.yaml"), true)
+	if err != nil {
+		return b.String(), err
+	}
+	tn.total += tn2.total
+	tbad := tn.bad + tn2.bad
+	b.WriteString(fmt.Sprintf("\nфайлы тестов: %d/%d соответствуют plugin.test.schema.json",
+		tn.total-tbad, tn.total))
+	for _, p := range append(tn.problems, tn2.problems...) {
+		b.WriteString("\n    " + p)
+	}
+	if tbad > 0 {
+		return b.String(), fmt.Errorf("%d файлов тестов не соответствуют схеме", tbad)
+	}
+	for _, u := range dedupNotes(append(tn.unver, tn2.unver...)) {
+		b.WriteString("\n    " + u)
+	}
 	return b.String(), nil
+}
+
+// dedupNotes — уникальные сообщения по возрастанию: правило одно, а страдает
+// им каждый файл набора.
+func dedupNotes(notes []string) []string {
+	uniq := map[string]bool{}
+	for _, u := range notes {
+		uniq[u] = true
+	}
+	list := make([]string, 0, len(uniq))
+	for u := range uniq {
+		list = append(list, u)
+	}
+	sort.Strings(list)
+	return list
 }
 
 // docBatch — итог одного прогона checkDocs. Возвращается значением, а не

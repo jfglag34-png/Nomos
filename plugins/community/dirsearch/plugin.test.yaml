@@ -1,18 +1,73 @@
-# Контракт-тесты dirsearch (mock dirsearch CLI, без сети и без пакета dirsearch).
+# Контракт-тесты dirsearch.
+#
+# Кейсы разделены намеренно.
+#
+# 1. РЕАЛЬНЫЙ ИНСТРУМЕНТ (кейсы с `{{base_url}}`) — донор запускается по-настоящему
+#    против локального сервера, который поднимает сам раннер:
+#      services: [{type: http, root: fixtures/site, base_url: "{{base_url}}"}]
+#    Сервер живёт только на время прогона на свободном порту 127.0.0.1, а
+#    `{{base_url}}` подставляется в input. Так проверяется то, чего мок не может:
+#    что донор реально ходит по сети, что его JSON-отчёт соответствует тому, что
+#    лежит в фикстуре (путь, статус, размер), и что пустой результат — это
+#    честный «ничего не нашлось», а не заготовка мока. Пока dirsearch не
+#    установлен, эти кейсы падают с dirsearch_not_installed: это правда, а не
+#    сбой теста.
+#
+# 2. МОК (кейсы с DIRSEARCH_BIN) — ветки отказа. Настоящий dirsearch нельзя
+#    детерминированно заставить упасть на конкретном входе или вернуть битый
+#    отчёт, поэтому для них нужен управляемый двойник.
+#
+# Фикстуры и словарь передаются относительными путями: подпроцесс плагина
+# стартует в каталоге плагина, абсолютный путь в тесте был бы привязан к машине.
+# Живые кейсы требуют установленного донора; в CI он ставится пином
+# dirsearch==0.5.0 рядом с detect-secrets (см. .github/workflows/ci.yml), потому
+# что точные числа в ожиданиях зависят от версии.
+services:
+  - type: http
+    root: fixtures/site          # отдаётся как есть: /, /admin/ → 301, /secret.txt → 200
+    base_url: "{{base_url}}"     # подставляется в input
+
 tests:
-  - name: скан → найденные пути со статусом и размером
-    env: { DIRSEARCH_BIN: "mock_dirsearch.py" }
-    input: { url: "https://target.example", extensions: "json,txt", threads: 20 }
+  # ── 1. реальный инструмент против локальной фикстуры ───────────────────────
+  - name: "РЕАЛ: скан по фикстуре → пути, статусы и размеры"
+    input: { url: "{{base_url}}/", wordlist: "fixtures/words.txt", threads: 4 }
+    timeout: 60s
     expect:
       status: ok
+      exit_code: 0
       output:
-        url: "https://target.example"
-        count: 3
+        # url несёт порт, которого в тесте нет: проверяем только то, что он
+        # ведёт на наш сервис, а не конкретное число.
+        url: { contains: "127.0.0.1" }
+        count: 2
         found:
-          - { path: /admin/, status: 200, size: 5120 }
-          - { path: /api/config.json, status: 200, size: 128 }
-          - { path: /backup.zip, status: 403, size: 0 }
+          # equals сравнивает массив целиком вместе с порядком: порядок задаёт
+          # плагин (сортировка по path), и это же проверяет детерминированность.
+          equals:
+            - { path: /admin, status: 301, size: 0 }
+            - { path: /secret.txt, status: 200, size: 16 }
 
+  - name: "РЕАЛ: в фикстуре ничего нет → ok и пустой массив (не ошибка)"
+    input: { url: "{{base_url}}/missing-dir/", wordlist: "fixtures/words.txt", threads: 4 }
+    timeout: 60s
+    expect:
+      status: ok
+      exit_code: 0
+      output:
+        # url проверяется и здесь: без сервиса в кейсе остаётся литерал
+        # «{{base_url}}», и такой кейс обязан краснеть, а не тихо стать зелёным.
+        url: { contains: "127.0.0.1" }
+        count: 0
+        found: []
+
+  # Ветку «донор не достучался» НАСТОЯЩИЙ dirsearch отдаёт так же, как «ничего не
+  # нашлось»: на закрытый порт он печатает пустой results и выходит с 0
+  # (проверено: `url: http://127.0.0.1:1/` → ok, count 0). Такой кейс был бы
+  # зелёным и при мёртвом сервисе — то есть проверял бы ровно то, ради чего
+  # сервис и поднимается. Поэтому «донор дошёл до сервиса» доказывают первые
+  # два кейса точными числами (статус и размер файла фикстуры), а не этот.
+
+  # ── 2. мок: ветки отказа ─────────────────────────────────────────────────
   - name: без схемы цель нормализуется в https
     env: { DIRSEARCH_BIN: "mock_dirsearch.py" }
     input: { url: "target.example/app" }
@@ -21,16 +76,6 @@ tests:
       output:
         url: "https://target.example/app"
         count: { equals: 3 }
-
-  - name: ничего не нашлось → ok, пустой массив
-    env: { DIRSEARCH_BIN: "mock_dirsearch.py", MOCK_EMPTY: "1" }
-    input: { url: "https://target.example" }
-    expect:
-      status: ok
-      output:
-        url: "https://target.example"
-        found: []
-        count: 0
 
   - name: пустой url → доменная ошибка
     env: { DIRSEARCH_BIN: "mock_dirsearch.py" }
@@ -63,6 +108,13 @@ tests:
       status: error
       exit_code: 1
       error: { code: bad_threads }
+
+  - name: wall_timeout не число → платформенная ошибка
+    env: { DIRSEARCH_BIN: "mock_dirsearch.py" }
+    input: { url: "https://target.example", wall_timeout: "долго" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
 
   - name: dirsearch не установлен (путь)
     env: { DIRSEARCH_BIN: "/nonexistent/dirsearch-bin" }

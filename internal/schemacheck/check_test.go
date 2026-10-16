@@ -239,6 +239,64 @@ func TestCheckRepoKeepsDetailsFromBothManifestBatches(t *testing.T) {
 	}
 }
 
+// Схема plugin.test.yaml обязана быть опубликована, а не «де-факто в коде».
+// Проверяем обе стороны: файл с объявленным сервисом проходит, а файл с тем же
+// сервисом, но с опечаткой в типе или в имени поля — падает. Иначе новый
+// раздел контракта жил бы без схемы, и опечатка `servcies` прошла бы гейт.
+func TestCheckRepoValidatesPluginTestFiles(t *testing.T) {
+	src, err := findRepoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	build := func(t *testing.T, spec string) string {
+		t.Helper()
+		repo := t.TempDir()
+		for _, dir := range []string{"schemas", "examples"} {
+			if err := copyDir(t, filepath.Join(src, dir), filepath.Join(repo, dir)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		dir := filepath.Join(repo, "plugins", "official", "x")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		manifest := "id: x\nversion: 0.1.0\nplatform_api: \"^0.1\"\n" +
+			"runtime:\n  type: python\n  entry: main.py\noutput:\n  value: { type: string }\n"
+		if err := os.WriteFile(filepath.Join(dir, "plugin.yaml"), []byte(manifest), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "plugin.test.yaml"), []byte(spec), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return repo
+	}
+
+	good := "services:\n  - type: http\n    root: fixtures/site\n    base_url: \"{{base_url}}\"\n" +
+		"tests:\n  - name: кейс\n    input: { url: \"{{base_url}}/\" }\n" +
+		"    expect: { status: ok }\n"
+	out, err := CheckRepo(build(t, good))
+	if err != nil {
+		t.Fatalf("файл с объявленным сервисом обязан соответствовать схеме:\n%s", out)
+	}
+	if !strings.Contains(out, "файлы тестов: 1/1") {
+		t.Errorf("отчёт должен называть проверенные файлы тестов:\n%s", out)
+	}
+
+	for name, bad := range map[string]string{
+		"чужой тип сервиса": "services:\n  - type: postgres\n    root: fixtures/site\ntests:\n  - name: к\n    expect: { status: ok }\n",
+		"нет root":          "services:\n  - type: http\ntests:\n  - name: к\n    expect: { status: ok }\n",
+		"опечатка в поле":   "services:\n  - type: http\n    rootdir: fixtures/site\ntests:\n  - name: к\n    expect: { status: ok }\n",
+		"опечатка в кейсе":  "tests:\n  - name: к\n    inpt: { value: 1 }\n    expect: { status: ok }\n",
+		"кейс без expect":   "tests:\n  - name: к\n    input: { value: 1 }\n",
+		"мусорный статус":   "tests:\n  - name: к\n    expect: { status: maybe }\n",
+	} {
+		out, err = CheckRepo(build(t, bad))
+		if err == nil {
+			t.Errorf("%s: такой файл обязан падать, а прошёл:\n%s", name, out)
+		}
+	}
+}
+
 func copyDir(t *testing.T, src, dst string) error {
 	t.Helper()
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {

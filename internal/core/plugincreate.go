@@ -321,6 +321,14 @@ tests:
 # Полезные матчеры: { present: true } { absent: true } { contains: "..." } { type: "array" }
 # env: { KEY: "value" } — переменные на время теста (секреты, mock-режимы)
 # input_raw: "{oops"   — сырой stdin, для тестов битого JSON (ожидайте exit 2)
+#
+# Плагину нужен живой HTTP-сервер (донор ходит по сети)? Добавьте сервис —
+# он поднимается на 127.0.0.1 до кейсов и гасится после прогона:
+# services:
+#   - type: http
+#     root: fixtures/site        # каталог, который отдаётся (от этой папки)
+#     base_url: "{{base_url}}"   # подставляется в input / input_raw / env
+# тогда целью кейса пишите url: "{{base_url}}/index.html"
 `
 }
 
@@ -420,6 +428,14 @@ tests:
 # Полезные матчеры: { present: true } { absent: true } { contains: "..." } { type: "array" }
 # env: { KEY: "value" } — переменные на время теста (секреты, mock-режимы)
 # input_raw: "{oops"   — сырой stdin, для тестов битого JSON (ожидайте exit 2)
+#
+# Плагину нужен живой HTTP-сервер (донор ходит по сети)? Добавьте сервис —
+# он поднимается на 127.0.0.1 до кейсов и гасится после прогона:
+# services:
+#   - type: http
+#     root: fixtures/site        # каталог, который отдаётся (от этой папки)
+#     base_url: "{{base_url}}"   # подставляется в input / input_raw / env
+# тогда целью кейса пишите url: "{{base_url}}/index.html"
 `
 }
 
