@@ -248,7 +248,7 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/dirsearch
     version: v0.33c
-    commit: 901d82c6faa228dae47439ef7e5e9db0fd212480
+    commit: 93a4ec9a095bff0cd0d296030e7f8d944c03f4e6
     description: "dirsearch (maurosoria) — брутфорс директорий и файлов, JSON-отчёт. pip install dirsearch."
 
   dnsrecon:

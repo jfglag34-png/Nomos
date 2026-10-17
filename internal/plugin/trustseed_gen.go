@@ -70,7 +70,7 @@ var builtinTrusted = map[string][]string{
 		"sha256:11c0893798173596bc27290a166e6f82331d940a4615173e7e5886847f7c36cf",
 	},
 	"dirsearch": {
-		"sha256:b8b15cea6866c0144df075f1cf6f3485a45cdb47d28c29a13bfb29d5cf0f17c1",
+		"sha256:4ffccd1a743f603a767e9c1d5b454274adca047f7f7ff46c6aaaf52f8449f890",
 	},
 	"disposable_checker": {
 		"sha256:84cc805f04d72deb42db0757f2ec3e92b83dab130af52cff53cdba3f402bce49",
