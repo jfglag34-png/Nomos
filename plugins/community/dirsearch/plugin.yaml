@@ -6,14 +6,18 @@ description: >
   Обёртка над CLI dirsearch: сканирует одну явно заданную цель, берёт машинный
   JSON-отчёт (-o + --output-formats json) и отдаёт плоский список
   path/status/size. Рекурсия (-r) не включается, stdin закрыт, вывод CLI
-  выключен — инструмент не может задать вопрос и зависнуть. Ставится отдельно:
-  pip install dirsearch.
+  выключен — инструмент не может задать вопрос и зависнуть. Пин:
+  pip install dirsearch==0.5.0
 author: "community · wedra showcase (OSINT)"
 
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; пакет dirsearch — отдельно
+  # Пин донора в runtime.requires, а не пометка «поставьте отдельно»: без него
+  # pip-пакет никто не ставил, плагин числился готовым в UI и падал на первом
+  # же запуске. Обёртка сама по себе stdlib — пин объявлен для ДОНОРА, которого
+  # запускает она, а не для собственных импортов.
+  requires: ["dirsearch==0.5.0"]
 
 input:
   url:

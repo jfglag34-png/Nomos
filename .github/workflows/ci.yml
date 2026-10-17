@@ -91,22 +91,30 @@ jobs:
           GOBIN="$RUNNER_TEMP/bin" go install honnef.co/go/tools/cmd/staticcheck@2026.2.1
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       # Доноры, чьи конформные тесты запускают НАСТОЯЩИЙ инструмент, а не мок.
-      # ssl_info нужен для tests/plugins, detect_secrets — для шага plugins и
-      # registry внутри `wedra check`: его plugin.test.yaml запускает реальный
-      # `detect-secrets`, и без пакета эти кейсы падают. Пин — тот же, что в
-      # runtime.requires плагина; молча пропустить его нельзя, иначе «зелёный»
-      # CI будет означать «донор не установлен, тесты не проверялись».
-      # dirsearch — третий в этом списке и первый, чьи живые кейсы ходят по
-      # сети: его plugin.test.yaml поднимает локальный сервис (services в
-      # plugin.test.yaml) и сканирует его настоящим dirsearch, ожидая точные
-      # путь/статус/размер. Пин задан здесь, а не в requirements.lock, потому что
-      # плагин объявляет донора как «ставится отдельно» (runtime.requires: []) —
-      # менять это объявление здесь нечем.
+      # Список не «кажется правильным», а измерен: каждый плагин здесь упал бы
+      # в чистом интерпретаторе — прогон `wedra plugin test` в venv без
+      # наследования site-packages даёт 6/19 altdns, 16/23 pyelftools, 17/24
+      # lief, 19/27 msoffcrypto_tool, 20/25 oletools, 13/15 dirsearch, 12/16
+      # detect_secrets, 24/31 pefile. Остальные плагины с непустым
+      # runtime.requires (exifread, holehe, maigret, syntax_mx_checker)
+      # проходят без донора — их живые кейсы донора не касаются, и ставить его
+      # здесь незачем.
+      #
+      # Пин берётся ИЗ requirements.lock плагина, а не пишется руками в этом
+      # файле: объявление в runtime.requires и lock обязаны совпадать (контракт
+      # валидатора), и второй список пинов в CI расходился бы с первым при
+      # первом же перепине. dirsearch раньше стоял здесь голой строкой
+      # `pip install dirsearch==0.5.0` — только потому, что плагин объявлял
+      # «ставится отдельно» (runtime.requires: []) и lock'а не было; теперь
+      # он объявляет пином, и строка ушла в общий список.
+      #
+      # Молча пропустить любой из них нельзя: «зелёный» CI будет означать
+      # «донор не установлен, живые кейсы не проверялись».
       - name: plugin regression tests
         run: |
-          python3 -m pip install --disable-pip-version-check -r plugins/community/ssl_info/requirements.lock
-          python3 -m pip install --disable-pip-version-check -r plugins/community/detect_secrets/requirements.lock
-          python3 -m pip install --disable-pip-version-check dirsearch==0.5.0
+          for p in ssl_info detect_secrets dirsearch pefile altdns pyelftools lief msoffcrypto_tool oletools; do
+            python3 -m pip install --disable-pip-version-check -r "plugins/community/$p/requirements.lock"
+          done
           python3 -m unittest discover -s tests/plugins -v
       - name: wedra check (fmt, vet, lint, mod, versions, errcodes, schemas, supply, build, test, conformance, mcp, pipelines, plugins, registry)
         run: go run ./cmd/wedra check --race --timeout=720
@@ -515,6 +523,19 @@ jobs:
         with:
           go-version: '1.26.9' # GO-2026-6617: net/http HPACK, чинится в 1.26.9
       - run: go build -o wedra ./cmd/wedra
+      # Тот же список доноров, что и в джобе core, и по той же причине:
+      # `registry validate` гоняет plugin.test.yaml КАЖДОЙ записи реестра
+      # (internal/cli/registry.go, RunPluginTests вызывается безусловно — не
+      # только для --local-source), а живые кейсы этих восьми плагинов
+      # запускают настоящего донора. Без установки релизный гейт краснеет
+      # на 53 кейсах (altdns 13, msoffcrypto_tool 8, pyelftools 7, lief 7,
+      # pefile 7, oletools 5, detect_secrets 4, dirsearch 2). Список и замеры —
+      # в комментарии шага джоба core.
+      - name: install donor packages for plugin tests
+        run: |
+          for p in ssl_info detect_secrets dirsearch pefile altdns pyelftools lief msoffcrypto_tool oletools; do
+            python3 -m pip install --disable-pip-version-check -r "plugins/community/$p/requirements.lock"
+          done
       - run: ./wedra registry validate --registry=registry.yaml
 
   release:

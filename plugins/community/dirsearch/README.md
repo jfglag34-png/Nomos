@@ -3,7 +3,15 @@
 Брутфорс директорий и файлов веб-сервера (maurosoria/dirsearch), обёртка над CLI.
 Отчёт `dirsearch -o <file> --output-formats json` разбирается в плоский список path/status/size; рекурсия (`-r`) не включается.
 
-Установка внешнего инструмента: `pip install dirsearch==0.5.0`.
+## Установка донора
+
+Пин объявлен в манифесте (`runtime.requires: ["dirsearch==0.5.0"]`) и в
+`requirements.lock`, поэтому ставится вместе с плагином:
+
+```
+pip install dirsearch==0.5.0
+```
+
 Путь к бинарю переопределяется env `DIRSEARCH_BIN`.
 
 ## Тесты
