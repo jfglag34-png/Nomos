@@ -229,7 +229,7 @@ var builtinTrusted = map[string][]string{
 		"sha256:f9e517b6fcd97b3b885093ffe9a1177e8b3adcb50ef85ef4bf7a77af7dd492f1",
 	},
 	"recon_ng": {
-		"sha256:3402cf7c4d81200c02c633cd49de6814cf8958e25d5098a7d6bd20b403ccff1f",
+		"sha256:f709f62a02e542b64cf924ac44fb5a0b416356d8a1c0c7fd3e839c097074cce6",
 	},
 	"regex_extract": {
 		"sha256:3aee2b0b40f579ac3953d0d5b19ab97178677774d1b753d330fd71ce5401ab98",
@@ -250,7 +250,7 @@ var builtinTrusted = map[string][]string{
 		"sha256:d5a61b639126d2334af86eb8d2c5c4f06f8c7f54a96c5afcd7e02d313009966c",
 	},
 	"spiderfoot": {
-		"sha256:237ee0604268daf57f92a7a3a154e3bbcbd26c823f7ea2fcaabb3ed2d8da934e",
+		"sha256:15f1f59ae5e8571dc641895cf9552a0cde4c853eb9835c2761e3f3a992f69e51",
 	},
 	"sqlmap": {
 		"sha256:d72a5a8a267e8c8dbe5d03de7b8a0fb906380395eee36b5f53076915c4a794bf",

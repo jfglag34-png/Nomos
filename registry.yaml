@@ -465,8 +465,8 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/recon_ng
     version: v0.33c
-    commit: ec567e4fb25faa732784827e0bab6c42f80e63bd
-    description: "recon-ng — модульный OSINT-фреймворк, сценарий собирается плагином, отчёт JSON. pip install recon-ng."
+    commit: b17a4a5c5d9c924aa8fd1b37a3919e5e17cdae2f
+    description: "recon-ng — модульный OSINT-фреймворк, сценарий собирается плагином, отчёт JSON. Пакета на PyPI нет, ставится из исходников (git clone)."
 
   scoutsuite:
     source: https://github.com/wykserdex/wedra
@@ -500,8 +500,8 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/spiderfoot
     version: v0.33c
-    commit: ec567e4fb25faa732784827e0bab6c42f80e63bd
-    description: "SpiderFoot (smicallef) — OSINT-фреймворк, модульные прогоны по цели, JSON в stdout. pip install spiderfoot."
+    commit: b17a4a5c5d9c924aa8fd1b37a3919e5e17cdae2f
+    description: "SpiderFoot (smicallef) — OSINT-фреймворк, модульные прогоны по цели, JSON в stdout. Пакета на PyPI нет, ставится из исходников (git clone)."
 
   sqlmap:
     source: https://github.com/wykserdex/wedra
