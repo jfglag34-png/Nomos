@@ -442,6 +442,24 @@ async function applyPreset(file, inputName, pre) {
     state.doc.foreach_item = doc.foreach_item || '';
     state.doc.item_type = doc.item_type || '';
     state.doc.item_format = doc.item_format || '';
+    // v0.5/v0.6: env-ключи и сетевая политика — часть смысла сценария, а не
+    // украшение. Сборщик их не переносил, и обе потери были молчаливыми:
+    // сеть превращалась в запрет (пустое поле = deny — валидатор отказывал в
+    // сохранении только для плагинов, заявивших сеть в манифесте), а secrets
+    // терялись совсем: кросс-чек «плагин просит ключ ↔ pipeline» живёт в
+    // предупреждениях, файл сохранялся, и пайплайн падал уже на запуске с
+    // secrets_missing. Значение переносится как есть, включая пустое: собранный
+    // пайплайн — это сценарий, а не документ, к которому сценарий что-то
+    // добавил (лишний ключ в secrets, как и недостающий, роняет ран).
+    state.doc.network = doc.network || '';
+    state.doc.secrets = (doc.secrets || []).slice();
+    // Поле, которым редактор не управляет, обязано ДОЕХАТЬ до state.unsupported:
+    // иначе сборщик строит документ без него, сериализация его отбрасывает, и
+    // save() проходит — потеря получается ровно той, ради которой страж стоит.
+    for (const f of (doc.unsupported || [])) {
+      if (!Array.isArray(state.unsupported)) state.unsupported = [];
+      if (!state.unsupported.includes(f)) state.unsupported.push(f);
+    }
     // ссылки input.X: сперва пробуем обслужить их ОДНИМ введённым значением,
     // и только несовместимые (путь к файлу, csv) получают собственный вход.
     // Раньше на каждую ссылку заводился новый вход — цепочка из трёх шагов
@@ -492,7 +510,9 @@ async function applyPreset(file, inputName, pre) {
     note('сценарий ' + file + ': вход → ' + first.id + '.' + key
       + (merged ? '; наш вход «' + inputName + '» получил ещё полей: ' + merged : '')
       + (missing ? '; заведён отдельных входов: ' + missing : '')
-      + (loopVar ? '; цикл по элементу «' + loopVar + '»' : ''));
+      + (loopVar ? '; цикл по элементу «' + loopVar + '»' : '')
+      + (state.doc.network ? '; сеть сценария: ' + state.doc.network : '')
+      + (state.doc.secrets.length ? '; ключи: ' + state.doc.secrets.join(', ') : ''));
   } catch (e) {
     note('сценарий не собран: ' + (e.message || e), true);
   }
