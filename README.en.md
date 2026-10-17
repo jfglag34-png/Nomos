@@ -32,7 +32,23 @@ Building from source needs Go 1.26 or newer. That floor is the `go` directive in
 minimum is always the tested one.
 
 There are 99 plugins in the repository and in the registry: 5 `official` and 94
-`community`. **About the word "community":** all 99 plugins are currently written
+`community`. Of those, 58 need nothing beyond a bare Python 3, while 41 wrap a
+third-party donor. WEDRA installs a donor only through `runtime.requires`, which
+means exactly `pip install package==version` and nothing more: it cannot install
+a Perl CLI, a Go program, or a git clone.
+
+`runtime.requires` is declared for 13 plugins. For 26 more the donor does exist on
+PyPI, so one manifest line each is all that stands between them and working out of
+the box — that is declared debt, not a reason to drop them. Only `recon-ng` and
+`spiderfoot` really have to be installed by hand: PyPI has no distribution for
+either.
+
+The numbers above are a property of the catalog. The state of any given machine is
+measured, not asserted: `wedra doctor` recomputes every plugin with the same Python
+that runs WEDRA itself, and prints how many are ready and what to install. It
+installs nothing and runs nothing.
+
+**About the word "community":** all 99 plugins are currently written
 by the repository owner and live in that same repository — all 99 registry
 entries carry the same `source`, `https://github.com/wykserdex/wedra`, with no
 outside sources and no third-party authors. "Community" means shipped outside the
@@ -66,9 +82,9 @@ this list rather than from the feature set.
   External services are not "WEDRA integrations" but ordinary plugins that read
   your key from the environment.
 - **It does not chase plugin count.** The 99 plugins in the registry are not a
-  showcase: 43 of them wrap a third-party tool that WEDRA does not install
-  (`runtime.requires` can only `pip install package==version`), and 13 more
-  mention an installation that `wedra doctor` deliberately refuses to vouch for.
+  showcase: 58 run on a bare Python 3, and 41 need an external donor, of which 26
+  would be installed by a single manifest line we have not written yet; 13 more
+  name an installation that `wedra doctor` deliberately refuses to vouch for.
   A plugin enters the registry because it passes the conformance gate and
   declares `permissions` honestly, not because it was written.
   `wedra doctor --json` lists every plugin that needs something installed and
