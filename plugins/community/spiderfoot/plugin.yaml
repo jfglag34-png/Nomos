@@ -4,8 +4,11 @@ platform_api: "^0.1"
 description: >
   SpiderFoot (smicallef) — OSINT-автоматизация, 200+ модулей. Обёртка над CLI
   spiderfoot/sf.py: неинтерактивный скан цели (`-s`), JSON-вывод (`-o json`)
-  в stdout, stdin закрыт. SpiderFoot ставится отдельно: pip install spiderfoot
-  либо распакованный релиз v4.0 (`python3 sf.py`).
+  в stdout, stdin закрыт. ВНИМАНИЕ: pip install spiderfoot не сработает —
+  пакета нет на PyPI (проверено: индекс отдаёт 404). Ставится из исходников:
+  git clone https://github.com/smicallef/spiderfoot.git, затем
+  pip3 install -r requirements.txt, запуск `python3 sf.py`. Либо распакованный
+  релиз v4.0.
 author: "community · wedra showcase (OSINT)"
 
 runtime:

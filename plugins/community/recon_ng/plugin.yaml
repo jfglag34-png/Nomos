@@ -2,11 +2,14 @@ id: recon_ng
 version: 0.1.0
 platform_api: "^0.1"
 description: >
-  Recon-ng (recon-ng/recon-ng) — модульный OSINT-фреймворк. Обёртка сама
+  Recon-ng (lanmaster53) — модульный OSINT-фреймворк. Обёртка сама
   собирает .rcn-сценарий (цель + список модулей + отчёт), запускает
   `recon-ng -w <workspace> -r <script>` и читает JSON-отчёт модуля
   reporting/json. Дефолтные модули — только те, что работают без
-  api-ключей (crt.sh и DNS-резолвер). Ставится отдельно: pip install recon-ng.
+  api-ключей (crt.sh и DNS-резолвер). ВНИМАНИЕ: pip install recon-ng не
+  сработает — пакета нет на PyPI (проверено: индекс отдаёт 404). Ставится из
+  исходников: git clone https://github.com/lanmaster53/recon-ng.git, затем
+  pip install -r REQUIREMENTS, запуск `./recon-ng`.
 author: "community · wedra showcase (OSINT)"
 
 runtime:

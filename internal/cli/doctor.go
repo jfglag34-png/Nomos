@@ -3,12 +3,15 @@ package cli
 import (
 	"fmt"
 	"io"
+	"net/http"
+	neturl "net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/wykserdex/wedra/internal/pipeline"
 	"github.com/wykserdex/wedra/internal/plugin"
@@ -17,10 +20,19 @@ import (
 // doctor: ответ на вопрос «я скачал бинарь, ничего не настроил, что мне
 // сломано и что делать».
 //
-// Команда только ОПРАШИВАЕТ: ни один плагин не запускается, ничего не ставится,
-// сеть не используется. Единственное, что выполняется, — интерпретатор
-// Python: без его запуска не узнать ни версию, ни какие пакеты уже стоят, а
-// именно это и есть половина ответа.
+// Команда только ОПРАШИВАЕТ: ни один плагин не запускается, ничего не ставится.
+// Единственное, что выполняется, — интерпретатор Python: без его запуска не
+// узнать ни версию, ни какие пакеты уже стоят, а именно это и есть половина
+// ответа.
+//
+// Сеть: используется ровно для одной вещи — GET к индексу PyPI по имени
+// донора, который не найден локально. Это чтение одного JSON, не установка и не
+// запуск кода. Причина не косметическая: проба интерпретатора отвечает «установлен
+// ли пакет здесь», а не «существует ли он на PyPI», поэтому без этой проверки
+// doctor выдавал `pip install X` для имён, которых на индексе нет, — то есть
+// совет, который невозможно выполнить. Если сети нет, doctor говорит «не удалось
+// проверить», а не притворяется, что знает. Прежняя формулировка «сеть не
+// используется» была верна до этой проверки и перестала быть правдой.
 //
 // Три состояния плагина:
 //
@@ -119,8 +131,22 @@ type doctorPlugin struct {
 	DonorInstalledNoScript bool `json:"donor_installed_no_script,omitempty"`
 	// DonorUnknown — определить надёжно не удалось; совет нейтральный.
 	DonorUnknown bool `json:"donor_unknown,omitempty"`
+	// DonorAbsentFromIndex — пакета донора нет на PyPI. Проба интерпретатора
+	// про это молчит: она спрашивает «установлен ли пакет ЗДЕСЬ», а не «существует
+	// ли он вообще». Поэтому «не установлен» долго выдавало `pip install X` для
+	// имён, которых на индексе нет, — команду, которая не может сработать.
+	DonorAbsentFromIndex bool `json:"donor_absent_from_index,omitempty"`
+	// DonorIndexUnknown — наличие пакета на PyPI проверить не удалось (сети нет,
+	// индекс недоступен). Это НЕ то же, что DonorAbsentFromIndex: «не знаю» не
+	// повод ни советовать установку, ни объявлять пакет отсутствующим.
+	DonorIndexUnknown bool `json:"donor_index_unknown,omitempty"`
 	// DonorScripts — имена консольных скриптов пакета (entry_points).
 	DonorScripts []string `json:"donor_scripts,omitempty"`
+
+	// idxState — ответ индекса для этого донора. Не в JSON: наружу уходят
+	// разобранные DonorAbsentFromIndex и DonorIndexUnknown, а сырой ответ
+	// нужен только чтобы выбрать текст совета.
+	idxState indexState
 }
 
 // doctorReport — весь ответ команды.
@@ -327,7 +353,19 @@ func runDoctor(pluginsDir string) doctorReport {
 						// Установить нельзя надёжно определить — не выдумываем.
 						p.DonorUnknown = true
 					case !info.Installed && !info.Importable:
+						// Дефект 3. «Пакета нет здесь» не равно «пакета нет на
+						// индексе»: проба спрашивает только первое. Поэтому перед
+						// советом об установке индекс опрашивается — и его
+						// недоступность остаётся недоступностью, а не поводом
+						// советовать наугад.
 						p.DonorMissing = true
+						p.idxState = doctorIndexLookup(donor)
+						switch p.idxState {
+						case indexAbsent:
+							p.DonorAbsentFromIndex = true
+						case indexUnknown:
+							p.DonorIndexUnknown = true
+						}
 					default:
 						// Дефект 1. Пакет стоит, а его консольного скрипта нет
 						// в PATH. pip кладёт скрипты в Scripts\, который в PATH
@@ -351,6 +389,8 @@ func runDoctor(pluginsDir string) doctorReport {
 					p.Install = pathAdvice(rep, p)
 				case p.DonorUnknown:
 					p.Install = "проверь вручную: pip show " + donor
+				case p.DonorMissing:
+					p.Install = indexAdvice(donor, p.idxState)
 				default:
 					p.Install = "pip install " + donor
 				}
@@ -397,6 +437,77 @@ func lookupPackage(pkgs map[string]plugin.PackageInfo, name string) (plugin.Pack
 		}
 	}
 	return plugin.PackageInfo{}, false
+}
+
+// indexState — ответ индекса пакетов. Три состояния, а не два, и это не
+// педантизм: «нет на индексе» и «не удалось проверить» требуют от doctor
+// противоположного поведения. Первое — можно сказать «ставьте из исходников».
+// Второе — нельзя сказать ничего, кроме «проверь сам».
+type indexState int
+
+const (
+	indexUnknown indexState = iota
+	indexAbsent
+	indexPresent
+)
+
+// doctorIndexLookup — проверка «есть ли такой пакет на PyPI».
+//
+// Именно проверка, а не установка: doctor по-прежнему ничего не ставит и
+// ничего не запускает. Это HTTP GET одного JSON-индекса.
+//
+// Переменная, а не прямой вызов намеренно: она меняет ответ, по которому
+// doctor решает, что человеку показать, а юнит-тесты doctor обязаны быть
+// детерминированными и не ходить в сеть. Подменяет её только doctor_test.go.
+var doctorIndexLookup = pypiIndexLookup
+
+// pypiIndexLookup спрашивает индекс по имени пакета.
+//
+// Ровно GET https://pypi.org/pypi/<имя>/json: ответ 404 у pip означает
+// «дистрибутива нет», и это единственный сигнал, на который здесь можно
+// опереться. Код возврата pip для этого НЕ годится — проверено на этой
+// машине: `pip index versions recon-ng` печатает «ERROR: No matching
+// distribution found» в stderr и при этом завершается с кодом 0, то есть
+// судить по коду возврата там, где pip отвечает в stderr, — значит
+// выдумывать результат.
+func pypiIndexLookup(name string) indexState {
+	if name == "" {
+		return indexUnknown
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	url := "https://pypi.org/pypi/" + neturl.PathEscape(name) + "/json"
+	resp, err := client.Get(url)
+	if err != nil {
+		return indexUnknown
+	}
+	defer resp.Body.Close()
+	// Тело не читаем целиком: нужен только код ответа, а индекс отдаёт
+	// мегабайты JSON, из которых нужны две строки.
+	switch {
+	case resp.StatusCode == http.StatusOK:
+		return indexPresent
+	case resp.StatusCode == http.StatusNotFound:
+		return indexAbsent
+	default:
+		// 500, 403, редирект на captcha и прочее — это «не знаю», а не «нет».
+		return indexUnknown
+	}
+}
+
+// indexAdvice — что сказать человеку, когда донора нет локально.
+//
+// Раньше здесь был безусловный `pip install <донор>`, и это ровно тот совет,
+// который нельзя давать вслепую: для `recon-ng` и `spiderfoot` он был
+// нерабочим. Теперь состояние индекса известно и отличено от «не знаю».
+func indexAdvice(donor string, state indexState) string {
+	switch state {
+	case indexAbsent:
+		return "пакета " + donor + " на PyPI нет — `pip install` не поможет; ставьте из исходников (git clone) или уберите плагин"
+	case indexPresent:
+		return "pip install " + donor
+	default:
+		return "не установлено; наличие " + donor + " на PyPI проверить не удалось — `pip install` может не сработать, сверьтесь вручную"
+	}
 }
 
 // pathAdvice — что сказать, когда пакет стоит, а скрипта нет в PATH.

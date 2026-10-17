@@ -84,6 +84,94 @@ func doctorOne(t *testing.T, root string) doctorPlugin {
 	return rep.Plugins[0]
 }
 
+// stubIndexLookup подменяет проверку индекса на заданный ответ на все имена.
+// Тесты не ходят в сеть: иначе они зависели бы от чужой доступности, а падение
+// «PyPI недоступен» выглядело бы как поломка doctor.
+func stubIndexLookup(t *testing.T, state indexState) {
+	t.Helper()
+	prev := doctorIndexLookup
+	doctorIndexLookup = func(string) indexState { return state }
+	t.Cleanup(func() { doctorIndexLookup = prev })
+}
+
+// Имя, которого заведомо нет на PyPI: с префиксом, который не может совпасть
+// с настоящим пакетом. Донар при этом НЕ установлен локально — иначе проверка
+// прошла бы не по той ветке.
+const absentDonor = "wedra-nonexistent-donor-xyz"
+
+// Дефект, найденный измерением: проба интерпретатора отвечает на вопрос
+// «установлен ли пакет здесь», а не «существует ли он на PyPI». Ветка
+// «не установлен» трактовала это как «устанавливаем» и выдавала
+// `pip install recon-ng` — команду, которая не может сработать, потому что
+// такого пакета на индексе нет. Проверено на живых манифестах: doctor так
+// советовал по recon_ng и spiderfoot.
+func TestDoctorDoesNotAdvisePipInstallForPackageAbsentFromIndex(t *testing.T) {
+	stubIndexLookup(t, indexAbsent)
+	root := doctorFixture(t, map[string]string{
+		"absent/plugin.yaml": doctorManifestText("absent", "Ставится отдельно: pip install "+absentDonor, nil),
+		"absent/main.py":     "import json\nprint('{}')\n",
+	})
+	p := doctorOne(t, root)
+
+	// Проверяется ФОРМА совета, а не подстрока: текст про «пакета нет на PyPI»
+	// упоминает `pip install` в отрицании, и Contains поймал бы его как
+	// успех. Копируемая команда начинается с `pip install`, и ничего больше
+	// начинаться не должна.
+	if strings.HasPrefix(p.Install, "pip install") {
+		t.Errorf("doctor посоветовал pip install для пакета, которого нет на PyPI: %q", p.Install)
+	}
+	if !p.DonorAbsentFromIndex {
+		t.Errorf("отсутствие пакета на индексе не отмечено: %+v", p)
+	}
+	// Отсутствие на индексе — не повод считать плагин готовым: он и правда не
+	// работает. Проверяем отдельно, чтобы «не советовать install» не
+	// превратилось в «всё хорошо».
+	if p.Status == doctorReady {
+		t.Errorf("плагин с ненайденным донором помечен готовым: %+v", p)
+	}
+	if p.Install == "" {
+		t.Errorf("совет пуст: человеку не сказано, что делать. %+v", p)
+	}
+}
+
+// «Не знаю» и «нет на индексе» — разные вещи, и обе обязаны молчать вместо
+// того, чтобы выдавать confident-команду. Недоступность сети не должна
+// выглядеть как разрешение советовать наугад.
+func TestDoctorDoesNotAdvisePipInstallWhenIndexUnknown(t *testing.T) {
+	stubIndexLookup(t, indexUnknown)
+	root := doctorFixture(t, map[string]string{
+		"unknown/plugin.yaml": doctorManifestText("unknown", "Ставится отдельно: pip install "+absentDonor, nil),
+		"unknown/main.py":     "import json\nprint('{}')\n",
+	})
+	p := doctorOne(t, root)
+
+	if strings.HasPrefix(p.Install, "pip install") {
+		t.Errorf("совет выдан при непроверяемом индексе: %q", p.Install)
+	}
+	if !p.DonorIndexUnknown {
+		t.Errorf("непроверяемый индекс не отмечен: %+v", p)
+	}
+}
+
+// Обратная сторона правки: настоящий пакет с индекса советовать перестать не
+// надо. Без этого теста «никогда не пиши pip install» проходит идеально и при
+// этом ломает весь смысл команды.
+func TestDoctorStillAdvisesPipInstallForRealPackage(t *testing.T) {
+	stubIndexLookup(t, indexPresent)
+	root := doctorFixture(t, map[string]string{
+		"present/plugin.yaml": doctorManifestText("present", "Ставится отдельно: pip install "+absentDonor, nil),
+		"present/main.py":     "import json\nprint('{}')\n",
+	})
+	p := doctorOne(t, root)
+
+	if p.Install != "pip install "+absentDonor {
+		t.Errorf("для существующего пакета нужен ровно pip install: %q", p.Install)
+	}
+	if p.DonorAbsentFromIndex || p.DonorIndexUnknown {
+		t.Errorf("существующий пакет помечен отсутствующим или неизвестным: %+v", p)
+	}
+}
+
 // Нормальный случай: плагин на чистой стандартной библиотеке и без донора
 // обязан быть готов. Это регрессия на «doctor считает готовым всё подряд» и
 // наоборот — на «doctor флагует штатные плагины».
@@ -146,6 +234,10 @@ func TestDoctorReportsMissingDependency(t *testing.T) {
 // нет в PATH. Проверяем через подмену PATH на пустой каталог, чтобы результат
 // не зависел от того, что установлено у машины.
 func TestDoctorReportsMissingExternalTool(t *testing.T) {
+	// Индекс подменён: тест проверяет «пакета нет ЗДЕСЬ», а «есть ли он на
+	// PyPI» — другой вопрос с другим ответом. Без подмены тест ходил бы в сеть,
+	// и падение индекса читалось бы как поломка doctor.
+	stubIndexLookup(t, indexPresent)
 	root := doctorFixture(t, map[string]string{
 		"donor/plugin.yaml": doctorManifestText("donor",
 			"Обёртка над CLI. Ставится отдельно: pip install wedra-absent-tool.", nil),
