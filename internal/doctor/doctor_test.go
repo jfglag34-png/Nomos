@@ -1,4 +1,4 @@
-package cli
+package doctor
 
 import (
 	"bytes"
@@ -75,9 +75,9 @@ permissions:
 }
 
 // doctorOne — отчёт ровно на один плагин, с внятной ошибкой вместо паника.
-func doctorOne(t *testing.T, root string) doctorPlugin {
+func doctorOne(t *testing.T, root string) Plugin {
 	t.Helper()
-	rep := runDoctor(root)
+	rep := Run(root)
 	if len(rep.Plugins) != 1 {
 		t.Fatalf("в отчёте плагинов %d, ждали 1 (каталог %s)", len(rep.Plugins), root)
 	}
@@ -89,9 +89,9 @@ func doctorOne(t *testing.T, root string) doctorPlugin {
 // «PyPI недоступен» выглядело бы как поломка doctor.
 func stubIndexLookup(t *testing.T, state indexState) {
 	t.Helper()
-	prev := doctorIndexLookup
-	doctorIndexLookup = func(string) indexState { return state }
-	t.Cleanup(func() { doctorIndexLookup = prev })
+	prev := indexLookup
+	indexLookup = func(string) indexState { return state }
+	t.Cleanup(func() { indexLookup = prev })
 }
 
 // Имя, которого заведомо нет на PyPI: с префиксом, который не может совпасть
@@ -126,7 +126,7 @@ func TestDoctorDoesNotAdvisePipInstallForPackageAbsentFromIndex(t *testing.T) {
 	// Отсутствие на индексе — не повод считать плагин готовым: он и правда не
 	// работает. Проверяем отдельно, чтобы «не советовать install» не
 	// превратилось в «всё хорошо».
-	if p.Status == doctorReady {
+	if p.Status == StatusReady {
 		t.Errorf("плагин с ненайденным донором помечен готовым: %+v", p)
 	}
 	if p.Install == "" {
@@ -180,7 +180,7 @@ func TestDoctorReadyWhenNothingIsNeeded(t *testing.T) {
 		"clean/plugin.yaml": doctorManifestText("clean", "Плагин на stdlib, донора нет", nil),
 		"clean/main.py":     "import json, sys\nprint(json.dumps({'status': 'ok', 'output': {'value': 'x'}}))\n",
 	})
-	rep := runDoctor(root)
+	rep := Run(root)
 
 	if rep.Total != 1 {
 		t.Fatalf("найдено плагинов %d, ждали 1 — фикстура не прочитана", rep.Total)
@@ -209,14 +209,14 @@ func TestDoctorReportsMissingDependency(t *testing.T) {
 			[]string{absent + "==9.9.9"}),
 		"needy/main.py": "import json\nprint(json.dumps({'status': 'ok', 'output': {'value': 'x'}}))\n",
 	})
-	rep := runDoctor(root)
+	rep := Run(root)
 
 	if rep.NeedsDep != 1 {
 		t.Fatalf("нужна зависимость для %d плагинов, ждали 1 (итог: %s)", rep.NeedsDep, rep.Summary)
 	}
 	p := doctorOne(t, root)
-	if p.Status != doctorNeedsDep {
-		t.Errorf("статус = %q, ждали %q", p.Status, doctorNeedsDep)
+	if p.Status != StatusNeedsDependency {
+		t.Errorf("статус = %q, ждали %q", p.Status, StatusNeedsDependency)
 	}
 	if len(p.MissingRequires) != 1 || !strings.Contains(p.MissingRequires[0], absent) {
 		t.Errorf("missing_requires = %v, ждали один элемент с %s", p.MissingRequires, absent)
@@ -252,7 +252,7 @@ func TestDoctorReportsMissingExternalTool(t *testing.T) {
 	}
 	t.Setenv("PATH", filepath.Dir(interp))
 
-	rep := runDoctor(root)
+	rep := Run(root)
 
 	if rep.Total != 1 {
 		t.Fatalf("найдено плагинов %d, ждали 1", rep.Total)
@@ -261,8 +261,8 @@ func TestDoctorReportsMissingExternalTool(t *testing.T) {
 	if p.Donor != "wedra-absent-tool" {
 		t.Fatalf("донер = %q, ждали wedra-absent-tool", p.Donor)
 	}
-	if p.Status != doctorNeedsDon {
-		t.Errorf("статус = %q, ждали %q", p.Status, doctorNeedsDon)
+	if p.Status != StatusNeedsExternalTool {
+		t.Errorf("статус = %q, ждали %q", p.Status, StatusNeedsExternalTool)
 	}
 	if p.Install != "pip install wedra-absent-tool" {
 		t.Errorf("команда = %q", p.Install)
@@ -293,7 +293,7 @@ func TestDoctorDoesNotOfferToInstallAlreadyInstalledPackage(t *testing.T) {
 			"Обёртка. Ставится отдельно: pip install "+pkg+".", nil),
 		"installed/main.py": "import json\nprint(json.dumps({'status': 'ok', 'output': {'value': 'x'}}))\n",
 	})
-	rep := runDoctor(root)
+	rep := Run(root)
 	p := doctorOne(t, root)
 
 	if !p.DonorInstalledNoScript {
@@ -370,7 +370,7 @@ func TestDoctorAcceptsDonorFoundUnderCodeName(t *testing.T) {
 	})
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+filepath.Dir(interp))
 
-	rep := runDoctor(root)
+	rep := Run(root)
 	p := doctorOne(t, root)
 	if !p.DonorFound {
 		t.Fatalf("донор scout не найден, хотя положен в PATH: %+v", p)
@@ -381,8 +381,8 @@ func TestDoctorAcceptsDonorFoundUnderCodeName(t *testing.T) {
 	if p.DonorFoundName != "scout" {
 		t.Errorf("найден под именем %q, ждали scout", p.DonorFoundName)
 	}
-	if p.Status != doctorReady {
-		t.Errorf("статус = %q, ждали %q: плагин запускается, ругаться не на что", p.Status, doctorReady)
+	if p.Status != StatusReady {
+		t.Errorf("статус = %q, ждали %q: плагин запускается, ругаться не на что", p.Status, StatusReady)
 	}
 }
 
@@ -516,7 +516,7 @@ func TestDoctorURLInstallTargetIsUnverifiedNotAFakeDonor(t *testing.T) {
 		"url/main.py":     "import json\nprint(json.dumps({'status': 'ok', 'output': {'value': 'x'}}))\n",
 		"url/README.md":   "Установка донора:\n\n    pip install https://github.com/x/y-1.0.tar.gz?a=b\n",
 	})
-	rep := runDoctor(root)
+	rep := Run(root)
 	p := doctorOne(t, root)
 
 	if p.Donor != "" {
@@ -530,9 +530,9 @@ func TestDoctorURLInstallTargetIsUnverifiedNotAFakeDonor(t *testing.T) {
 	if strings.Contains(p.Install, "https") {
 		t.Errorf("совет установки %q обещает поставить пакет https", p.Install)
 	}
-	if p.Status != doctorReady {
+	if p.Status != StatusReady {
 		t.Errorf("статус = %q, ждали %q: «не проверено» — это не «нужен инструмент»",
-			p.Status, doctorReady)
+			p.Status, StatusReady)
 	}
 	found := false
 	for _, id := range rep.UnverifiedDonors {
@@ -567,7 +567,7 @@ func TestRequirementNameStripsPin(t *testing.T) {
 // строка обязана называть причину, иначе человек решит, что у него всё в
 // порядке.
 func TestDoctorEmptyPluginsDirExplainsItself(t *testing.T) {
-	rep := runDoctor(t.TempDir())
+	rep := Run(t.TempDir())
 	if rep.Total != 0 {
 		t.Fatalf("Total = %d при пустом каталоге", rep.Total)
 	}
@@ -586,7 +586,7 @@ func TestDoctorJSONShape(t *testing.T) {
 		"a/plugin.yaml": doctorManifestText("a", "Плагин A на stdlib", nil),
 		"a/main.py":     "import json\nprint('{}')\n",
 	})
-	rep := runDoctor(root)
+	rep := Run(root)
 	raw, err := json.Marshal(rep)
 	if err != nil {
 		t.Fatal(err)
@@ -605,8 +605,8 @@ func TestDoctorJSONShape(t *testing.T) {
 		t.Fatalf("plugins в JSON = %v, ждали массив из 1", back["plugins"])
 	}
 	entry := list[0].(map[string]interface{})
-	if entry["status"] != doctorReady {
-		t.Errorf("status в JSON = %v, ждали %q", entry["status"], doctorReady)
+	if entry["status"] != StatusReady {
+		t.Errorf("status в JSON = %v, ждали %q", entry["status"], StatusReady)
 	}
 }
 
@@ -663,16 +663,16 @@ func TestDoctorDonorMatchingRequiresIsNotExternalTool(t *testing.T) {
 			[]string{"wedra-absent-exif-pkg==1.0"}),
 		"exif/main.py": "import json\nprint(json.dumps({'status': 'ok', 'output': {'value': 'x'}}))\n",
 	})
-	rep := runDoctor(root)
+	rep := Run(root)
 	p := doctorOne(t, root)
 
-	if p.DonorKind != doctorDonorSameAsRequires {
+	if p.DonorKind != DonorKindSameAsRequires {
 		t.Errorf("donor_kind = %q, ждали %q: донор совпадает с пакетом из requires",
-			p.DonorKind, doctorDonorSameAsRequires)
+			p.DonorKind, DonorKindSameAsRequires)
 	}
-	if p.Status != doctorNeedsDep {
+	if p.Status != StatusNeedsDependency {
 		t.Errorf("статус = %q, ждали %q: отсутствующий пакет из requires — это needs_dependency",
-			p.Status, doctorNeedsDep)
+			p.Status, StatusNeedsDependency)
 	}
 	if rep.NeedsDonor != 0 {
 		t.Errorf("needs_external_tool = %d, ждали 0: совет «установи инструмент» тут путает", rep.NeedsDonor)
@@ -801,14 +801,14 @@ func TestDoctorPinnedDonorIsNotUnverified(t *testing.T) {
 		"pinned/main.py":   "import json\nprint(json.dumps({'status': 'ok', 'output': {'value': 'x'}}))\n",
 		"pinned/README.md": "Установка донора:\n\n    pip install " + pkg + "==1.2.3\n",
 	})
-	rep := runDoctor(root)
+	rep := Run(root)
 	p := doctorOne(t, root)
 
 	if p.Donor != pkg {
 		t.Errorf("donor = %q, ждали %q: версия в пине — это не часть имени", p.Donor, pkg)
 	}
-	if p.DonorKind != doctorDonorSameAsRequires {
-		t.Errorf("donor_kind = %q, ждали %q", p.DonorKind, doctorDonorSameAsRequires)
+	if p.DonorKind != DonorKindSameAsRequires {
+		t.Errorf("donor_kind = %q, ждали %q", p.DonorKind, DonorKindSameAsRequires)
 	}
 	for _, id := range rep.UnverifiedDonors {
 		if id == "pinned" {
@@ -850,14 +850,14 @@ func TestDoctorPinParsingTable(t *testing.T) {
 // дефект 3, только в масштабе витрины, а не на двух примерах.
 func TestDoctorRealRepoDonorNamesHaveNoGarbage(t *testing.T) {
 	// Каталог плагинов ищем от исходника теста: go test запускает пакет в
-	// internal/cli, и относительный "plugins" там не существует — проверка
+	// internal/doctor, и относительный "plugins" там не существует — проверка
 	// молча прошла бы вхолостую.
 	_, self, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Skip("не удалось определить путь к исходнику")
 	}
 	root := filepath.Join(filepath.Dir(self), "..", "..", "plugins")
-	manifests := scanDoctorManifests(root)
+	manifests := scanManifests(root)
 	if len(manifests) == 0 {
 		t.Skipf("плагины не найдены в %s", root)
 	}
@@ -895,7 +895,7 @@ func TestDoctorListsUnverifiedDonors(t *testing.T) {
 		"readmeonly/main.py":     "import json\nprint('{}')\n",
 		"readmeonly/README.md":   "Установка внешнего инструмента: `pip install other-tool`.\n",
 	})
-	rep := runDoctor(root)
+	rep := Run(root)
 
 	found := map[string]bool{}
 	for _, id := range rep.UnverifiedDonors {
@@ -917,12 +917,12 @@ func TestDoctorHumanOutputHasHonestyNote(t *testing.T) {
 		"readmeonly/main.py":     "import json\nprint('{}')\n",
 		"readmeonly/README.md":   "Установка: `pip install other-tool`.\n",
 	})
-	rep := runDoctor(root)
+	rep := Run(root)
 	if len(rep.UnverifiedDonors) == 0 {
 		t.Fatal("оговорка не набралась — проверять нечего")
 	}
 	var buf bytes.Buffer
-	printDoctorHumanTo(&buf, rep)
+	PrintHuman(&buf, rep)
 	text := buf.String()
 	if !strings.Contains(text, "Оговорка") || !strings.Contains(text, "НЕ проверено") {
 		t.Errorf("в человеческом выводе нет оговорки о границах проверки:\n%s", text)
