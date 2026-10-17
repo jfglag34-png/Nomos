@@ -19,6 +19,7 @@ const esc = s => String(s ?? '').replace(/[&<>"'`]/g,
 let st = {
   plugins: [],
   assets: [],
+  pipelines: null,   // список нужен только ради счётчика в рельсе; null = не считали
   file: null,   // выбранный загруженный артефакт
   chain: [],    // [{plugin, dir, binds:[{field, from}], missing:[field]}]
   built: null,  // имя сохранённого пайплайна
@@ -476,10 +477,21 @@ function renderPicker() {
 }
 
 function render() {
+  renderRailCounts();
   renderAssets();
   renderChain();
   renderPicker();
   $('#to-editor').disabled = !st.built;
+}
+
+// Счётчики в рельсе. Рельса — навигация всего приложения, и пустые числа у
+// разделов читались бы как «пусто», а не как «не считали». Пайплайны —
+// единственный список, которого эта страница не грузит; он нужен только ради
+// числа, и ошибка здесь не должна мешать работе режима.
+function renderRailCounts() {
+  const set = (sel, n) => { const el = $(sel); if (el) el.textContent = n == null ? '' : String(n); };
+  set('#rail-plug-count', st.plugins.length);
+  set('#rail-pip-count', st.pipelines === null ? '' : st.pipelines.length);
 }
 
 // ── события ────────────────────────────────────────────────────────────────
@@ -538,5 +550,11 @@ $('#clear').addEventListener('click', () => {
   } catch (e) {
     status('не загрузились плагины/артефакты: ' + e.message, 'err');
   }
+  // Пайплайны — только ради числа в рельсе. Отдельным try: неудача здесь не
+  // должна превращаться в сообщение об ошибке поверх рабочего экрана.
+  try {
+    const ps = await api('/api/pipelines');
+    st.pipelines = Array.isArray(ps) ? ps.filter(p => !p.error) : [];
+  } catch (e) { st.pipelines = null; }
   render();
 })();

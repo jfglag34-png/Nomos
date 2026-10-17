@@ -307,6 +307,11 @@ function wirePrefs() {
     if (e.key === 'Escape' && !panel.hidden) close();
   });
   P.onChange = refresh;
+  // Панель настроек живёт здесь, а не дублируется на каждой странице: сами
+  // настройки — общее состояние (prefs.js, localStorage), и рельса режима
+  // артефактов ведёт на неё адресом /?prefs. Без этой строки пункт «Настройки»
+  // на другой странице был бы ссылкой в никуда.
+  if (new URLSearchParams(location.search).has('prefs')) open();
 }
 
 // setModeHighlight — какая вкладка РЕЖИМА подсвечена. Разделы (рельса) и

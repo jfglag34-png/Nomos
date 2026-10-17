@@ -119,6 +119,11 @@ let state = {
   notes: [],
   noteSig: '',        // подпись состояния, под которое собрана авто-панель
   noteOff: '',        // состояние, панель которого человек закрыл руками
+  // Сеть, объявленная сценарием и НЕ перенесённая сборщиком цепочки: значит
+  // ровно одно — «allow». Живёт рядом с notes, а не в state.doc, потому что
+  // это не свойство пайплайна, а напоминание редактора: пока человек не
+  // выдал сеть кликом, цепочка без сети, и молчать об этом нельзя.
+  netPending: '',
   // Слой редактора: 'inputs' — только входные значения, 'pipeline' — только
   // шаги и связи. Первый экран — входы: с них начинается работа с пайплайном.
   layer: 'inputs',
@@ -442,16 +447,36 @@ async function applyPreset(file, inputName, pre) {
     state.doc.foreach_item = doc.foreach_item || '';
     state.doc.item_type = doc.item_type || '';
     state.doc.item_format = doc.item_format || '';
-    // v0.5/v0.6: env-ключи и сетевая политика — часть смысла сценария, а не
-    // украшение. Сборщик их не переносил, и обе потери были молчаливыми:
-    // сеть превращалась в запрет (пустое поле = deny — валидатор отказывал в
-    // сохранении только для плагинов, заявивших сеть в манифесте), а secrets
-    // терялись совсем: кросс-чек «плагин просит ключ ↔ pipeline» живёт в
-    // предупреждениях, файл сохранялся, и пайплайн падал уже на запуске с
-    // secrets_missing. Значение переносится как есть, включая пустое: собранный
-    // пайплайн — это сценарий, а не документ, к которому сценарий что-то
-    // добавил (лишний ключ в secrets, как и недостающий, роняет ран).
-    state.doc.network = doc.network || '';
+    // ── network и secrets: переносятся РАЗНО, и это не опечатка ────────────
+    //
+    // network из сценария НЕ переносится. Сеть — это доступ, а не свойство
+    // цепочки, и выдавать её должен человек осознанным действием: тот, кто
+    // нажал «собрать цепочку», скорее всего не читал YAML внутри пресета, а
+    // `network: allow` там стоит в третьей строке и выглядит как часть описания.
+    // Перенос дал бы доступ в сеть одним кликом по сборщику — ровно то, что
+    // запрещает политика проекта («сеть выдаёт человек, а не файл»).
+    // Собранная цепочка обязана быть без сети: пустое поле = deny (см.
+    // EffectiveNetwork в internal/pipeline/model.go), и выдать сеть может
+    // только клик по «разрешить сеть» или выбор network в свойствах. Поле
+    // обнуляется безусловно, а не только когда сценарий что-то объявил: allow,
+    // выданный вручную прежнему набору шагов, к новой цепочке отношения не
+    // имеет, а сохранить его молча значило бы выдать сеть без спроса.
+    // Знание «сеть не перенесена, её надо выдать» НЕ теряется вместе со
+    // значением: оно висит в state.netPending и печатается на холсте.
+    const presetNet = String(doc.network || '');
+    state.doc.network = '';
+    state.netPending = presetNet === 'allow' ? presetNet : '';
+    //
+    // secrets, наоборот, переносятся: ключ — это ОБЪЯВЛЕНИЕ, какие переменные
+    // окружения читает цепочка, а не выдача доступа. Сам ключ остаётся в
+    // окружении, и раннер требует наличия КАЖДОГО объявленного ключа. Потеря
+    // объявления была беззвучной (сверка «плагин просит ключ ↔ pipeline» живёт
+    // в предупреждениях, файл сохранялся), и пайплайн падал уже на запуске с
+    // secrets_missing — то есть терялись данные о цепочке. Лишний ключ, как и
+    // недостающий, роняет ран, поэтому переносится значение как есть,
+    // включая пустое. Уравнивать эти два поля нельзя: одно — доступ, другое —
+    // описание. Перенос secrets копией: правка чипов в UI не должна дописывать
+    // ключ в исходный сценарий.
     state.doc.secrets = (doc.secrets || []).slice();
     // Поле, которым редактор не управляет, обязано ДОЕХАТЬ до state.unsupported:
     // иначе сборщик строит документ без него, сериализация его отбрасывает, и
@@ -511,7 +536,9 @@ async function applyPreset(file, inputName, pre) {
       + (merged ? '; наш вход «' + inputName + '» получил ещё полей: ' + merged : '')
       + (missing ? '; заведён отдельных входов: ' + missing : '')
       + (loopVar ? '; цикл по элементу «' + loopVar + '»' : '')
-      + (state.doc.network ? '; сеть сценария: ' + state.doc.network : '')
+      + (presetNet === 'allow'
+        ? '; сеть сценария (allow) НЕ перенесена — сеть выдаёт человек, нажми «разрешить сеть»'
+        : presetNet ? '; сеть сценария: ' + presetNet + ' — так и оставлено (сеть не выдаётся)' : '')
       + (state.doc.secrets.length ? '; ключи: ' + state.doc.secrets.join(', ') : ''));
   } catch (e) {
     note('сценарий не собран: ' + (e.message || e), true);
@@ -709,6 +736,9 @@ function wireIssueClicks() {
     b.onclick = () => {
       pushUndo();
       state.doc.network = b.dataset.net;
+      // Человек выдал сеть сам — напоминание «сеть сценария не перенесена»
+      // больше не нужно и панель уходит.
+      state.netPending = '';
       renderAll();
       note('сеть разрешена для пайплайна: network: allow');
     };
@@ -793,15 +823,26 @@ function sourceOptions(excludeId) {
 }
 
 // ── undo/redo ─────────────────────────────────────────────────────────────
+// Снимок — это документ ПЛЮС напоминание о невыданной сети сценария: без
+// второго undo откатывал бы цепочку к прежнему виду, а панель продолжала бы
+// говорить «сеть сценария НЕ перенесена» — враньё вместо предупреждения.
+function undoSnap() {
+  return JSON.stringify({ doc: state.doc, netPending: state.netPending || '' });
+}
+function undoUnsnap(s) {
+  const o = JSON.parse(s);
+  state.doc = o.doc;
+  state.netPending = o.netPending || '';
+}
 function pushUndo() {
-  state.undo.push(JSON.stringify(state.doc));
+  state.undo.push(undoSnap());
   if (state.undo.length > 100) state.undo.shift();
   state.redo = [];
 }
 function undo() {
   if (!state.undo.length) return;
-  state.redo.push(JSON.stringify(state.doc));
-  state.doc = JSON.parse(state.undo.pop());
+  state.redo.push(undoSnap());
+  undoUnsnap(state.undo.pop());
   state.sel = null;
   // снимок не знает ни про вооружение, ни про протяжку, ни про кандидатов:
   // после undo/redo источник связи мог исчезнуть или сменить выход.
@@ -815,8 +856,8 @@ function undo() {
 }
 function redo() {
   if (!state.redo.length) return;
-  state.undo.push(JSON.stringify(state.doc));
-  state.doc = JSON.parse(state.redo.pop());
+  state.undo.push(undoSnap());
+  undoUnsnap(state.redo.pop());
   state.sel = null;
   state.link = null;
   const fileInput = $('#file-name');
@@ -1452,15 +1493,22 @@ function retryBlock(st) {
 }
 
 // v0.6: подсказка в шаге — какую сеть просит плагин (манифест) и не
-// запрещена ли она политикой пайплайна.
+// запрещена ли она политикой пайплайна. Пустое поле — это тоже deny
+// (EffectiveNetwork), и после сборки цепочки из сценария с allow оно
+// пустое всегда: называть такой шаг «аудит — журнал» значило бы показывать
+// человеку, будто сеть выдана. Формулировки повторяют networkDenyBecause.
 function pluginNetworkHint(st) {
   const info = pluginInfo(st.plugin);
   const net = (info && info.permissions && info.permissions.network) || [];
   if (!net.length) return '';
   const hosts = net.map(n => (n.any_host ? '*' : (n.host + ':' + n.port))).join(', ');
-  if (state.doc.network === 'deny')
-    return `<div class="hint">сеть плагина: <span style="color:var(--err,#e5534b)">${esc(hosts)} — пайплайн запрещает сеть (network: deny, ошибка валидации)</span></div>`;
-  return `<div class="hint">сеть плагина: ${esc(hosts)} (declare-now, аудит — журнал)</div>`;
+  if (state.doc.network === 'allow')
+    return `<div class="hint">сеть плагина: ${esc(hosts)} (declare-now, аудит — журнал)</div>`;
+  const why = state.doc.network === 'deny'
+    ? 'пайплайн запрещает сеть (network: deny, ошибка валидации)'
+    : 'сеть не объявлена: пустое поле = deny, ошибка валидации. Выдайте её '
+      + 'кнопкой «разрешить сеть» или выбором network → allow в свойствах пайплайна';
+  return `<div class="hint">сеть плагина: <span style="color:var(--err,#e5534b)">${esc(hosts)} — ${esc(why)}</span></div>`;
 }
 
 // v0.5: подсказка в шаге — какие env-ключи просит плагин (манифест) и
@@ -1865,9 +1913,15 @@ function wireProps(st) {
     state.doc.secrets.splice(+b.dataset.sdel, 1);
     renderAll();
   });
-  // v0.6: network — политика allow/deny/пусто(запрет)
+  // v0.6: network — политика allow/deny/пусто(запрет). Любой выбор человека —
+  // в том числе явный запрет — снимает напоминание о невыданной сети сценария.
   const nnet = el.querySelector('[data-nnet]');
-  if (nnet) nnet.onchange = () => { pushUndo(); state.doc.network = nnet.value; renderAll(); };
+  if (nnet) nnet.onchange = () => {
+    pushUndo();
+    state.doc.network = nnet.value;
+    state.netPending = '';
+    renderAll();
+  };
 }
 
 // ── слои: входы и пайплайн ────────────────────────────────────────────────
@@ -1941,7 +1995,19 @@ function renderAll() {
 function noteSigNow() {
   const errs = (state.valErrs || []).length;
   return [errs, state.doc.steps.length, state.doc.foreach || '',
-    state.doc.network || '', (state.doc.gates || '')].join('|');
+    state.doc.network || '', (state.doc.gates || ''), state.netPending || ''].join('|');
+}
+
+// Сценарий объявил сеть, а сборщик цепочки её не перенёс: молчать об этом
+// нельзя — человек должен понимать, что цепочка собрана без сети и что
+// выдать сеть его решение, одним кликом. Строка нужна в двух ветках панели
+// (ошибки и сводка), иначе при E_NETWORK_DENIED объяснение ядра «поле network
+// не задано» осталось бы без причины.
+function netPendingRow() {
+  return '<span class="row"><span class="k">сеть сценария:</span> <code>'
+    + esc(state.netPending) + '</code> НЕ перенесена — сборщик цепочки сеть не '
+    + 'выдаёт. Выдайте её сами: «разрешить сеть» в панели ошибок слева или '
+    + 'network → allow в свойствах пайплайна.</span>';
 }
 
 function autoNote() {
@@ -1949,8 +2015,12 @@ function autoNote() {
   if (errs.length) {
     return {
       kind: 'err', title: 'Ошибки валидации',
+      // Не перенесённая сценарием сеть проговаривается и на панели ошибок:
+      // иначе при E_NETWORK_DENIED человек прочтёт «поле network не задано» и
+      // не поймёт, что причина — ровно что сеть не выдана, и кому её выдать.
       body: '<span class="row"><span class="k">ядро вернуло:</span> <code>'
         + esc(errs[0]) + '</code></span>'
+        + (state.netPending ? netPendingRow() : '')
         + (errs.length > 1
           ? `<span class="row"><span class="k">ещё ${errs.length - 1} — см. панель «ошибки» слева.</span></span>`
           : '')
@@ -1975,6 +2045,13 @@ function autoNote() {
   if (state.doc.network) {
     rows.push('<span class="row"><span class="k">сеть:</span> <code>'
       + esc(state.doc.network) + '</code></span>');
+  }
+  // Сценарий объявил сеть, а сборщик её не перенёс. Молчаливый deny здесь
+  // недопустим: человек должен понимать, что цепочка собрана без сети и что
+  // выдать её — его решение, одним кликом. Панель висит до выдачи или до
+  // явного запрета, а не до следующей валидации.
+  if (state.netPending) {
+    rows.push(netPendingRow());
   }
   const unbound = steps.filter(s => s.plugin !== 'core/human_gate'
     && inFields(s.plugin).some(f => !(s.bind || {})[f])).length;
@@ -2365,6 +2442,10 @@ async function openFile(file) {
     };
     state.unsupported = doc.unsupported || [];
     state.sel = null;
+    // Открытый файл приносит свою сеть как есть (round-trip, инвариант
+    // editor.go), а напоминание о невыданной сети чужого сценария здесь ни к
+    // чему: цепочку никто не собирал.
+    state.netPending = '';
     $('#file-name').value = file;
     // Селект «открыть существующий» тоже должен показать открытый файл:
     // loadFileList() отмечает в нём текущий документ, а на обычном пути

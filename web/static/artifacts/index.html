@@ -48,6 +48,12 @@
     --mono:"Cascadia Mono","Cascadia Code",Consolas,ui-monospace,Menlo,monospace;
     --sans:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
     --r:3px; --hdr:42px;
+    /* Плотность — те же токены и те же умолчания, что в консоли: без них пресет
+       плотности из prefs.js не смог бы попасть в рельсу этой страницы. */
+    --row-py:7px; --row-px:12px;
+    /* Ширина рельсы — тот же токен, что и в консоли: prefs.js переопределяет
+       его всегда (и «свёрнутая» рельса — тоже пресет, а не media-query). */
+    --rail-w:206px;
     /* см. комментарий в консоли: базовый кегль по умолчанию — свой у каждой
        страницы, prefs.js переопределяет только для нестандартной плотности */
     --fs-base:12.5px;
@@ -63,31 +69,74 @@
   ::-webkit-scrollbar-thumb:hover{background:#3b464f;background-clip:content-box}
   :focus-visible{outline:1px solid var(--acc);outline-offset:2px}
 
-  header{display:flex;align-items:center;gap:14px;height:var(--hdr);padding:0 16px;
-    background:linear-gradient(180deg,var(--sunken),var(--ink));border-bottom:1px solid var(--hair);
-    position:sticky;top:0;z-index:10;flex-wrap:nowrap;overflow-x:auto}
-  header h1{display:flex;align-items:center;gap:8px;font-family:var(--sans);font-size:16px;
-    margin:0;font-weight:600;letter-spacing:.13em;text-transform:uppercase}
-  header h1 .mark{display:inline-flex;opacity:.9}
-  header h1 .mark svg{display:block}
-  header .sub{color:var(--ash);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase}
-  .spacer{margin-left:auto}
-  nav.tabs .div{width:1px;background:var(--hair);margin:9px 0 8px;flex:none}
-  a.link{color:var(--ash);text-decoration:none;font-size:10.5px;letter-spacing:.12em;
-    text-transform:uppercase;white-space:nowrap}
-  a.link:hover{color:var(--bone)}
+  /* ── каркас: тот же, что в консоли и в редакторе ─────────────────────────
+     Раньше страница артефактов жила на СТАРОЙ верхней полосе — без рельсы и с
+     навигацией «Главная/Раны/Пайплайны/Плагины», которой больше нет: разделы
+     уехали в рельсу, а прогоны и артефакты стали режимами объекта. Разметка и
+     правила ниже — копия каркаса из web/static/index.html: одна навигация в
+     приложении, иначе страница выглядит как другой продукт. Дублируются они
+     здесь потому, что каждая страница несёт свой <style> (сборки нет). ── */
+  .shell{display:flex;height:100vh;overflow:hidden}
 
-  /* Переключатель режимов — текстом с подчёркиванием, а не «таблетками» */
-  .tabs{display:flex;gap:18px;align-self:stretch;margin-left:8px}
-  .tab{display:flex;align-items:center;font-size:10.5px;letter-spacing:.15em;text-transform:uppercase;
-    color:var(--ash);text-decoration:none;margin-bottom:-1px;border-bottom:1px solid transparent;
-    padding:0 1px;white-space:nowrap}
-  .tab:hover{color:var(--bone)}
-  .tab.on{color:var(--bone);border-bottom-color:var(--bone)}
+  .rail{width:var(--rail-w);flex:none;display:flex;flex-direction:column;
+    background:var(--sunken);border-right:1px solid var(--hair);overflow-y:auto}
+  .rail-top{display:flex;align-items:center;gap:8px;padding:0 12px;
+    height:var(--hdr);border-bottom:1px solid var(--hair);flex:none}
+  .rail-logo{font-size:12.5px;font-weight:600;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--bone);white-space:nowrap}
+  .rail-top .sp{margin-left:auto}
+  /* «+» — создать пайплайн. Единственная кнопка со знаком в рельсе. */
+  .rail-new{width:22px;height:22px;border:1px solid var(--hair2);border-radius:var(--r);
+    background:transparent;color:var(--ash);cursor:pointer;font-size:14px;line-height:1;
+    display:flex;align-items:center;justify-content:center;padding:0;flex:none;
+    text-decoration:none}
+  .rail-new:hover{color:var(--bone);border-color:var(--bone)}
+  .rail-sec{margin:14px 0 4px;padding:0 12px;font-size:9px;letter-spacing:.17em;
+    text-transform:uppercase;color:var(--faint)}
+  .rail-item{display:flex;align-items:center;gap:9px;width:100%;padding:var(--row-py) var(--row-px);
+    background:transparent;border:0;border-left:2px solid transparent;
+    color:var(--ash);font:inherit;font-size:12px;text-align:left;cursor:pointer;
+    text-decoration:none;transition:color .12s,background .12s}
+  .rail-item:hover{color:var(--bone);background:rgba(255,255,255,.03)}
+  .rail-item.active{color:var(--bone);border-left-color:var(--bone);background:rgba(255,255,255,.04)}
+  .rail-item .ri-dot{width:5px;height:5px;border-radius:50%;background:var(--faint);flex:none}
+  .rail-item.active .ri-dot{background:var(--bone)}
+  .rail-item .ri-n{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--faint)}
+  /* Свёрнутая рельса — пресет настройки (prefs.js ставит класс на <html>). */
+  html.rail-collapsed .rail-item span.lbl,html.rail-collapsed .rail-logo,
+  html.rail-collapsed .rail-note,html.rail-collapsed .rail-sec{display:none}
+  html.rail-collapsed .rail-item{justify-content:center;padding:9px 0}
+  .rail-item .ri-ico{display:none;font-size:13px;line-height:1}
+  html.rail-collapsed .rail-item .ri-ico{display:inline}
+  /* Помощь и «Что нового» в консоли живут внизу рельсы отдельной зоной.
+     Здесь их нет: они открывают панели, наполненные данными консоли. */
+  .rail-foot{margin-top:auto;padding:10px 0 12px;border-top:1px solid var(--hair);flex:none}
+  .rail-note{padding:8px 12px 0;font-size:10.5px;color:var(--faint);line-height:1.55}
+
+  /* Правая часть: шапка режимов + рабочая область. */
+  .work{flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden}
+  .topbar{display:flex;align-items:center;gap:14px;height:var(--hdr);padding:0 16px;
+    border-bottom:1px solid var(--hair);background:var(--ink);flex:none}
+  .modes{display:flex;gap:2px;align-items:center;height:100%}
+  .modes a{display:flex;align-items:center;height:100%;padding:0 13px;
+    background:transparent;border:0;border-bottom:2px solid transparent;color:var(--ash);
+    font:inherit;font-size:11.5px;cursor:pointer;text-decoration:none;transition:color .12s}
+  .modes a:hover{color:var(--bone)}
+  .modes a.active{color:var(--bone);border-bottom-color:var(--bone)}
+  .modes .objname{font-family:var(--mono);font-size:11.5px;color:var(--faint);
+    margin-left:8px;padding-left:13px;border-left:1px solid var(--hair);white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;max-width:34ch}
+  .topbar .sp{margin-left:auto}
 
   main{display:grid;grid-template-columns:minmax(320px,420px) 1fr;gap:18px;padding:20px;
-    align-items:start;max-width:1500px;margin:0 auto}
+    align-items:start;max-width:1500px;margin:0 auto;flex:1;min-height:0;overflow-y:auto;width:100%}
   @media (max-width:900px){main{grid-template-columns:1fr}}
+  @media (max-width:1180px){.rail{width:180px}}
+  @media (max-width:1000px){
+    .rail{width:52px}
+    .rail-item span.lbl,.rail-logo,.rail-note,.rail-sec{display:none}
+    .rail-item{justify-content:center;padding:9px 0}
+  }
   .card{background:var(--ink2);border:1px solid var(--hair);border-radius:var(--r);padding:16px}
   .card h2{margin:0 0 6px;font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);
     font-weight:500;display:flex;align-items:center;gap:9px}
@@ -179,19 +228,11 @@
   @keyframes fadeIn{from{opacity:0}to{opacity:1}}
   body{animation:pageIn .3s ease-out}
   #status,#out,.empty{animation:fadeIn .28s ease-out}
-  button,a.link,.tab,.plug,.a,.cstep,.tag{
+  button,.modes a,.rail-item,.plug,.a,.cstep,.tag{
     transition:color .16s ease,background-color .16s ease,border-color .16s ease,
       box-shadow .18s ease,opacity .16s ease}
   #drop{transition:border-color .16s ease,color .16s ease,background-color .16s ease}
   .a,.cstep{transition:border-color .16s ease,background-color .16s ease}
-
-  /* подчёркивание активного режима растягивается под ним */
-  .tab{position:relative}
-  .tab::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;
-    background:var(--bone);transform:scaleX(0);transform-origin:left center;
-    transition:transform .24s cubic-bezier(.22,.61,.36,1)}
-  .tab.on{border-bottom-color:transparent}
-  .tab.on::after{transform:scaleX(1)}
 
   @media (prefers-reduced-motion:reduce){
     *,*::before,*::after{animation-duration:.001s!important;animation-delay:0s!important;
@@ -199,57 +240,80 @@
   }
 </style>
 </head>
-</style>
-</head>
 <body>
-<header>
-  <h1><span class="mark" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 20 20"><path d="M10 1.5v17" stroke="currentColor" stroke-width="1.1"/><path d="M9.4 6.2 2.5 2.8l1.9 4.6zM9.4 12 2.5 8.6l1.9 4.6zM10.6 6.2l6.9-3.4-1.9 4.6zM10.6 12l6.9-3.4-1.9 4.6z" fill="currentColor"/></svg></span>WEDRA</h1>
-  <span class="sub">режим артефактов</span>
-  <nav class="tabs">
-    <a class="tab" href="/#menu">Главная</a>
-    <a class="tab" href="/#runs">Раны</a>
-    <a class="tab" href="/#pipelines">Пайплайны</a>
-    <a class="tab" href="/#plugins">Плагины</a>
-    <span class="div"></span>
-    <a class="tab" href="/editor/">Редактор</a>
-    <a class="tab on" href="/artifacts/">Артефакты</a>
+<div class="shell">
+  <!-- Разделы приложения — тонкой полосой слева, как в консоли. Прежняя
+       верхняя полоса («Главная/Раны/Пайплайны/Плагины») описывала старую
+       структуру приложения и осталась от предыдущего каркаса. -->
+  <nav class="rail">
+    <div class="rail-top">
+      <span class="rail-logo">WEDRA</span>
+      <span class="sp"></span>
+      <a class="rail-new" href="/editor/" title="Новый пайплайн" aria-label="Новый пайплайн">+</a>
+    </div>
+
+    <div class="rail-sec">Проекты</div>
+    <a class="rail-item" href="/#pipelines"><span class="ri-dot"></span><span class="lbl">Пайплайны</span><span class="ri-n" id="rail-pip-count"></span></a>
+    <a class="rail-item" href="/#plugins"><span class="ri-dot"></span><span class="lbl">Плагины</span><span class="ri-n" id="rail-plug-count"></span></a>
+    <a class="rail-item active" id="rail-artifacts" href="/artifacts/"><span class="ri-dot"></span><span class="lbl">Артефакты</span></a>
+
+    <div class="rail-foot">
+      <!-- Панель настроек живёт в консоли (там её наполнение), а сами
+           настройки — общее состояние prefs.js: рельса ведёт на неё адресом. -->
+      <a class="rail-item" href="/?prefs"><span class="ri-ico">⚙</span><span class="lbl">Настройки</span></a>
+      <div class="rail-note">Плагины — исполняемый код. Перед установкой проверяй
+        источник и права в манифесте.</div>
+    </div>
   </nav>
-  <span class="spacer"></span>
-</header>
 
-<main>
-  <!-- Левая колонка: файл -->
-  <section class="card">
-    <h2>1. Файл</h2>
-    <p class="hint">Кинь сюда фото, CSV или документ. Он сохранится рядом с пайплайнами и
-      станет входом будущего пайплайна. Редактор пайплайнов об этом не знает — это отдельный
-      режим со своей работой.</p>
-    <div id="drop">Перетащи файл<br><b>или нажми, чтоб выбрать</b></div>
-    <input type="file" id="file"/>
-    <div class="alist" id="alist"></div>
-  </section>
+  <div class="work">
+    <!-- Режимы ОБЪЕКТА, а не разделы приложения: прогоны и артефакты
+         принадлежат конкретному пайплайну, поэтому они здесь. -->
+    <header class="topbar">
+      <nav class="modes">
+        <a href="/editor/">Редактор</a>
+        <a href="/#runs">Прогоны</a>
+        <a class="active" href="/artifacts/">Артефакты</a>
+        <span class="objname">режим артефактов</span>
+      </nav>
+      <span class="sp"></span>
+    </header>
 
-  <!-- Правая колонка: цепочка -->
-  <section class="card">
-    <h2>2. Цепочка</h2>
-    <p class="hint">Первый шаг берёт файл, дальше редактор подставляет плагины, которые
-      принимают его выходы — по типам, объявленным в манифестах.</p>
-    <div id="chain" class="chain"></div>
+    <main>
+      <!-- Левая колонка: файл -->
+      <section class="card">
+        <h2>1. Файл</h2>
+        <p class="hint">Кинь сюда фото, CSV или документ. Он сохранится рядом с пайплайнами и
+          станет входом будущего пайплайна. Редактор пайплайнов об этом не знает — это отдельный
+          режим со своей работой.</p>
+        <div id="drop">Перетащи файл<br><b>или нажми, чтоб выбрать</b></div>
+        <input type="file" id="file"/>
+        <div class="alist" id="alist"></div>
+      </section>
 
-    <div id="picker" style="margin-top:14px">
-      <input type="search" id="q" placeholder="поиск плагина…"/>
-      <div class="pluglist" id="pluglist"></div>
-    </div>
+      <!-- Правая колонка: цепочка -->
+      <section class="card">
+        <h2>2. Цепочка</h2>
+        <p class="hint">Первый шаг берёт файл, дальше редактор подставляет плагины, которые
+          принимают его выходы — по типам, объявленным в манифестах.</p>
+        <div id="chain" class="chain"></div>
 
-    <div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <button class="primary" id="build">Собрать пайплайн</button>
-      <button id="to-editor" disabled>Открыть в редакторе</button>
-      <button id="clear">Очистить</button>
-    </div>
-    <div id="status"></div>
-    <pre id="out" hidden></pre>
-  </section>
-</main>
+        <div id="picker" style="margin-top:14px">
+          <input type="search" id="q" placeholder="поиск плагина…"/>
+          <div class="pluglist" id="pluglist"></div>
+        </div>
+
+        <div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button class="primary" id="build">Собрать пайплайн</button>
+          <button id="to-editor" disabled>Открыть в редакторе</button>
+          <button id="clear">Очистить</button>
+        </div>
+        <div id="status"></div>
+        <pre id="out" hidden></pre>
+      </section>
+    </main>
+  </div>
+</div>
 
 <script src="/prefs.js"></script>
 <script src="app.js"></script>

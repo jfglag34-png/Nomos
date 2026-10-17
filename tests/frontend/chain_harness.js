@@ -5,13 +5,21 @@
 //     node tests/frontend/chain_harness.js [путь-к-репозиторию]
 //
 // Что здесь закрывается. applyPreset — второй путь в state.doc (первый —
-// openFile). Он молча переносил не все поля сценария: network и secrets в
+// openFile), и он молча переносил не все поля сценария: network и secrets в
 // документ не попадали. Проверено на живом GUI: «собрать цепочку» из
 // llm_same_provider.yaml давал файл вообще без `secrets:` — валидатор писал
 // про это предупреждением, файл сохранялся, и пайплайн падал уже на запуске
-// с secrets_missing. Сетевая политика при этом превращалась в запрет
-// (пустое поле = deny), и набор сценариев, чьи плагины заявляют сеть, из
-// сборщика выпадал целиком.
+// с secrets_missing.
+//
+// Политика, которую держит стенд (и ради которой он написан целиком):
+//   secrets  переносится  — это объявление, какие ключи читает цепочка;
+//   network  НЕ переносится — это доступ, а доступ выдаёт человек кликом.
+// Сценарий с `network: allow`, собранный кнопкой, обязан дать цепочку БЕЗ сети
+// (пустое поле = deny) и заметное предупреждение вместо молчаливого deny.
+// Значение сети не переносится даже если оно было выдано вручную прежнему
+// набору шагов: у новой цепочки оно ничего не значило бы. Напоминание о
+// невыданной сети обязано переживать undo/redo вместе с цепочкой — иначе оно
+// врал бы в ту же сторону, откуда его и выдумали.
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -196,6 +204,17 @@ const PLUGINS = [
   { id: 'core/human_gate', input: {}, output: {} },
   { id: 'plugins/community/word_freq', input: { text: {} }, output: { words: {}, lines: {} } },
 ];
+// Ответ ядра на цепочку без сети при плагине, заявившем сеть. Текст —
+// дословно networkDenyBecause("") из internal/pipeline/model.go; сверить его с
+// живым ядром можно только в GUI, здесь он фикстура для проверки того, что
+// редактор показывает объяснение целиком и ведёт от него к клику.
+const NET_MSG = 'шаг draft: плагин plugins/official/llm_gemini заявил сеть (*:443), '
+  + 'а поле network не задано, а пустое поле означает deny — укажите network: allow, чтобы разрешить';
+const jsonResp = obj => ({
+  ok: true, status: 200,
+  headers: { get: () => 'application/json' },
+  json: async () => obj, text: async () => '',
+});
 const ctx = vm.createContext({
   window: {
     wedraSession: async () => true,
@@ -204,17 +223,21 @@ const ctx = vm.createContext({
     innerWidth: 1600, innerHeight: 900,
   },
   document: doc, console, setTimeout: () => 0, clearTimeout: () => {},
-  fetch: async () => ({
-    ok: true, status: 200,
-    headers: { get: () => 'application/json' },
-    json: async () => ({}), text: async () => '',
-  }),
+  // serialize/pipeline отвечает так, как отвечает ядро для цепочки без сети:
+  // E_NETWORK_DENIED с адресом шага. Остальные эндпоинты — пустые ответы.
+  fetch: async (url) => String(url).includes('/api/serialize/pipeline')
+    ? jsonResp({
+      yaml: 'name: llm\n',
+      errors: [NET_MSG], warnings: [],
+      issues: [{ code: 'E_NETWORK_DENIED', severity: 'error', step: 'draft', port: '', message: NET_MSG }],
+    })
+    : jsonResp({}),
   location: { href: 'http://x/editor/', search: '', origin: 'http://x' },
   confirm: () => true, alert: () => {}, wedraSession: async () => true,
   Date, Math, JSON, Object, Array, String, Number, Boolean, RegExp, Error,
 });
 vm.runInContext(fs.readFileSync(SRC, 'utf8'), ctx, { filename: 'app.js' });
-const ed = vm.runInContext('({state, applyPreset, renderAll, setLayer})', ctx);
+const ed = vm.runInContext('({state, applyPreset, renderAll, setLayer, doValidate, undo, redo})', ctx);
 
 let pass = 0, fail = 0;
 function ok(name, cond, extra) {
@@ -229,8 +252,19 @@ function freshDoc() {
     foreach: '', foreach_item: '', item_type: '', item_format: '',
   };
   ed.state.unsupported = [];
+  ed.state.netPending = '';
+  ed.state.valErrs = [];
+  ed.state.valIssues = [];
+  ed.state.undo = [];
+  ed.state.redo = [];
   ed.state.plugins = PLUGINS;
   ed.state.doc.input = [{ name: 'topic', default: 'арбузы', typed: false, type: '', has_default: true }];
+}
+
+// Подпись авто-панели на холсте: сборочная строка, а не вёрстка. Панель
+// собирается из настоящих данных (шаги, сеть, невыданная сеть сценария).
+function canvasPanel() {
+  return (ed.state.notes || []).map(n => String(n.body || '')).join(' ');
 }
 
 // Сценарий из реестра: сеть разрешена, объявлен ключ, цикла нет.
@@ -244,22 +278,36 @@ const LLM = {
 };
 
 async function main() {
-  console.log('сборщик цепочки: applyPreset должен переносить сценарий целиком');
+  console.log('сборщик цепочки: сценарий переносится, кроме сети — её выдаёт человек');
 
-  // --- 1. сценарий с сетью и ключом ---
+  // --- 1. сценарий с сетью и ключом: сеть НЕ переносится, ключ переносится ---
   freshDoc();
   await ed.applyPreset('llm_same_provider.yaml', 'topic', { file: 'llm_same_provider.yaml', field: 'prompt', doc: JSON.parse(JSON.stringify(LLM)) });
   ok('шаги сценария перенесены', ed.state.doc.steps.length === 2, String(ed.state.doc.steps.length));
   ok('вход привязан к первому шагу', ed.state.doc.steps[0].bind.prompt === 'input.topic',
     JSON.stringify(ed.state.doc.steps[0].bind));
-  ok('network сценария перенесён', ed.state.doc.network === 'allow', JSON.stringify(ed.state.doc.network));
+  // Политика: сеть выдаёт человек, а не файл. Сценарий объявил allow — цепочка
+  // обязана остаться без сети, иначе один клик по сборщику выдал бы доступ.
+  ok('network сценария НЕ перенесён', ed.state.doc.network === '', JSON.stringify(ed.state.doc.network));
+  ok('сборщик помнит, что сеть не выдана', ed.state.netPending === 'allow',
+    JSON.stringify(ed.state.netPending));
   ok('secrets сценария перенесены', JSON.stringify(ed.state.doc.secrets) === '["GEMINI_API_KEY"]',
     JSON.stringify(ed.state.doc.secrets));
   ok('gates сценария перенесены', ed.state.doc.gates === 'human_only', JSON.stringify(ed.state.doc.gates));
-  // перенос должен быть виден человеку, а не только в состоянии
+  // Молчаливый deny недопустим: человек должен понимать, что сеть не выдана и
+  // что её надо выдать кликом. Проверяются ОБЕ подписи — всплывающая и панель.
   const noteAfterLLM = byId.note.textContent;
-  ok('подпись на холсте называет перенесённую сеть', /сеть сценария: allow/.test(noteAfterLLM), JSON.stringify(noteAfterLLM));
-  ok('подпись на холсте называет перенесённый ключ', /GEMINI_API_KEY/.test(noteAfterLLM), JSON.stringify(noteAfterLLM));
+  ok('подпись говорит, что сеть НЕ перенесена', /НЕ перенесена/.test(noteAfterLLM), JSON.stringify(noteAfterLLM));
+  ok('подпись называет действие: выдать кликом', /выдаёт человек|разрешить сеть/.test(noteAfterLLM),
+    JSON.stringify(noteAfterLLM));
+  ok('подпись не объявляет перенос сети', !/сеть сценария: allow/.test(noteAfterLLM),
+    JSON.stringify(noteAfterLLM));
+  ok('подпись называет перенесённый ключ', /GEMINI_API_KEY/.test(noteAfterLLM), JSON.stringify(noteAfterLLM));
+  const panelLLM = canvasPanel();
+  ok('панель на холсте говорит, что сеть НЕ перенесена', /НЕ перенесена/.test(panelLLM),
+    JSON.stringify(panelLLM));
+  ok('панель на холсте называет, чем сеть выдать', /разрешить сеть|network → allow/.test(panelLLM),
+    JSON.stringify(panelLLM));
 
   // массив приходит из разбора документа — он не должен быть тем же самым
   // объектом: правка чипов в UI не имеет права дописать ключ в сценарий
@@ -269,9 +317,32 @@ async function main() {
     JSON.stringify(LLM.secrets) === '["GEMINI_API_KEY"]', JSON.stringify(LLM.secrets));
   ed.state.doc.secrets = JSON.parse(before);
 
-  // --- 2. сценарий без сети и без ключей: значения обнуляются, а не наследуются
-  // от прежнего документа. Иначе плагин, которому сеть не нужна, получил бы
-  // разрешение от чужого сценария.
+  // --- 2. то, что человек делает сам: ошибка ядра видна и кликабельна ---
+  // Собранная цепочка без сети у плагина, заявившего сеть, даёт E_NETWORK_DENIED.
+  // Редактор обязан показать объяснение ядра целиком и кнопку выдачи сети.
+  await ed.doValidate();
+  const ve = byId['val-err'];
+  const netBtn = ve.querySelector('[data-net]');
+  ok('ядро отвечает про сеть — панель ошибок показывает объяснение',
+    ve.innerHTML.indexOf(NET_MSG) >= 0, JSON.stringify(ve.innerHTML));
+  ok('ошибка про сеть кликабельна: есть кнопка выдачи', !!netBtn && netBtn.dataset.net === 'allow',
+    netBtn ? JSON.stringify(netBtn.dataset) : 'кнопки нет');
+  // На панели ошибок человек читает «поле network не задано» — причина обязана
+  // быть названа тут же, иначе непонятно, что сеть не выдана и кому её выдать.
+  ok('панель ошибок тоже говорит, что сеть сценария не перенесена',
+    /НЕ перенесена/.test(canvasPanel()), JSON.stringify(canvasPanel()));
+  // Клик по ошибке — это и есть осознанное действие человека: сеть выдана,
+  // напоминание снято.
+  if (netBtn) netBtn.onclick();
+  ok('клик «разрешить сеть» выдал сеть', ed.state.doc.network === 'allow',
+    JSON.stringify(ed.state.doc.network));
+  ok('после выдачи напоминание снято', ed.state.netPending === '', JSON.stringify(ed.state.netPending));
+  ok('после выдачи панель не пугает невыданной сетью',
+    !/НЕ перенесена/.test(canvasPanel()), JSON.stringify(canvasPanel()));
+
+  // --- 3. сценарий без сети: сеть прежнего документа тоже не наследуется ---
+  // Даже allow, выданный вручную прежнему набору шагов, к новой цепочке не
+  // относится: сохранять его молча = выдать сеть без спроса.
   freshDoc();
   ed.state.doc.network = 'allow';
   ed.state.doc.secrets = ['STALE_KEY'];
@@ -282,10 +353,35 @@ async function main() {
     },
   });
   ok('сеть прежнего документа не унаследована', ed.state.doc.network === '', JSON.stringify(ed.state.doc.network));
+  ok('прежняя выданная сеть не тащится в новую цепочку', ed.state.netPending === '',
+    JSON.stringify(ed.state.netPending));
   ok('ключи прежнего документа не унаследованы', ed.state.doc.secrets.length === 0,
     JSON.stringify(ed.state.doc.secrets));
 
-  // --- 3. цикл сценария (после v0.28) — регрессия, чтобы не сломать снова ---
+  // --- 4. напоминание не врёт после отката: undo возвращает и его ---
+  // Панель говорит «сеть сценария НЕ перенесена» только пока цепочка реально
+  // собрана без сети. Откат сборки возвращает прежний документ — и напоминание
+  // обязано уйти вместе с ним, иначе редактор врёт в ту же сторону, откуда его
+  // и выдумали.
+  freshDoc();
+  ed.state.doc.network = 'allow';
+  await ed.applyPreset('llm_same_provider.yaml', 'topic', {
+    file: 'llm_same_provider.yaml', field: 'prompt', doc: JSON.parse(JSON.stringify(LLM)),
+  });
+  ok('после сборки напоминание есть', ed.state.netPending === 'allow', JSON.stringify(ed.state.netPending));
+  ed.undo();
+  ok('после отката сеть прежнего документа вернулась', ed.state.doc.network === 'allow',
+    JSON.stringify(ed.state.doc.network));
+  ok('после отката напоминание ушло вместе со сборкой', ed.state.netPending === '',
+    JSON.stringify(ed.state.netPending));
+  ok('после отката панель не врёт про невыданную сеть',
+    !/НЕ перенесена/.test(canvasPanel()), JSON.stringify(canvasPanel()));
+  ed.redo();
+  ok('redo вернул цепочку без сети', ed.state.doc.network === '', JSON.stringify(ed.state.doc.network));
+  ok('redo вернул напоминание — оно правдиво', ed.state.netPending === 'allow',
+    JSON.stringify(ed.state.netPending));
+
+  // --- 5. цикл сценария (после v0.28) — регрессия, чтобы не сломать снова ---
   freshDoc();
   await ed.applyPreset('csv_foreach.yaml', 'topic', {
     file: 'csv_foreach.yaml', field: 'text', doc: {
@@ -299,7 +395,7 @@ async function main() {
   ok('item_type сценария перенесён', ed.state.doc.item_type === 'object', JSON.stringify(ed.state.doc.item_type));
   ok('item_format сценария перенесён', ed.state.doc.item_format === '', JSON.stringify(ed.state.doc.item_format));
 
-  // --- 4. поле, которым редактор не управляет, обязано запретить сохранение ---
+  // --- 6. поле, которым редактор не управляет, обязано запретить сохранение ---
   // save() отказывается писать файл при непустом state.unsupported. Сборщик
   // строит документ из разобранного YAML: не перенеся пометку, он получил бы
   // файл без этого поля — ровно та потеря, ради которой пометка существует.
@@ -326,7 +422,7 @@ async function main() {
       return ed.state.unsupported.filter(x => x === 'pipeline.exotic_mode').length;
     })()) === 1, JSON.stringify(ed.state.unsupported));
 
-  // --- 5. слой после сборки — пайплайн, а не входы; перенос виден человеку ---
+  // --- 7. слой после сборки — пайплайн, а не входы; перенос виден человеку ---
   ok('сборка оставила слой «пайплайн»', ed.state.layer === 'pipeline', ed.state.layer);
 
   console.log('\n' + (fail ? `провалено ${fail}, ` : '') + `пройдено ${pass}`);

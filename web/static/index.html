@@ -107,6 +107,21 @@
     background:var(--bone);color:var(--ink);border:1px solid var(--bone);border-radius:var(--r)}
   button.primary:hover{background:#fff;border-color:#fff}
   button.primary:disabled{background:transparent;color:var(--faint);border-color:var(--hair);cursor:default}
+  /* Запуск — единственная «живая» кнопка приложения, и она выглядит ОДИНАКОВО
+     в обоих местах, где запускают пайплайн: здесь и в шапке редактора
+     (#btn-run). Раньше они расходились — здесь костяная (--bone), в редакторе
+     бирюзовая (--acc), — и одна и та же команда выглядела двумя разными.
+     Выбран акцент: он и есть «главное действие» (палитра, п.1), а --bone
+     остаётся нейтральной кнопкой (Сохранить, Собрать пайплайн, Войти).
+     Надпись тёмная — на --acc белый давал 2.31–3.12 при требуемых 4.5,
+     тёмный даёт 6.03–8.16, и он одинаков на всех трёх палитрах акцента. */
+  #run-btn{background:var(--acc);border-color:var(--acc);color:var(--sunken);font-weight:600}
+  #run-btn:hover{background:var(--acc-hi);border-color:var(--acc-hi)}
+  /* Выключенное состояние — приглушённый акцент, а не пустое поле: редактор
+     приглушает ту же кнопку через button:disabled{opacity:.4}. Правило выше
+     (button.primary:disabled) эту кнопку не гасит: у id выше специфичность,
+     и без своей строки она выглядела бы включённой. */
+  #run-btn:disabled{opacity:.4;cursor:default}
   .hint{font-size:11.5px;color:var(--ash);margin-top:10px;line-height:1.65}
   .hint b{color:var(--bone);font-weight:600}
 
