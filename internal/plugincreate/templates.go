@@ -130,6 +130,30 @@ func templateRegistry() []pluginTemplate {
 			params:  []string{"pattern"},
 			build:   buildLineFilter,
 		},
+		{
+			name:    "rest-api",
+			title:   "Коннектор REST API",
+			summary: "url → {status, body}. Параметры: нет, env: API_KEY (опц.). Тесты на моке",
+			build:   buildRestAPI,
+		},
+		{
+			name:    "smtp",
+			title:   "Коннектор SMTP",
+			summary: "to,subject,body → {sent}. Секреты: SMTP_HOST/USER/PASS, MOCK=1 для тестов",
+			build:   buildSMTP,
+		},
+		{
+			name:    "postgres",
+			title:   "Коннектор Postgres",
+			summary: "query,params → {rows}. Секрет: PG_DSN, requires: psycopg2-binary",
+			build:   buildPostgres,
+		},
+		{
+			name:    "redis",
+			title:   "Коннектор Redis",
+			summary: "command,key,value → {value}. Секрет: REDIS_URL, requires: redis",
+			build:   buildRedis,
+		},
 	}
 }
 
@@ -592,6 +616,274 @@ tests:
 				"Элементы приводятся к строке через str(), поэтому числа и объекты тоже фильтруются.",
 			""),
 	}, nil
+}
+
+func buildRestAPI(id string, opts CreateOptions) (pluginFiles, error) {
+	desc := opts.Description
+	if desc == "" {
+		desc = "Коннектор REST API: url → статус и тело"
+	}
+	manifest := `# ` + id + ` — REST коннектор (ведро)
+id: ` + id + `
+version: 0.1.0
+platform_api: "^0.1"
+description: ` + yamlQuote(desc) + `
+author: ` + yamlQuote(opts.Author) + `
+
+runtime:
+  type: python
+  entry: main.py
+  requires: ["requests==2.32.0"]
+
+input:
+  url: { from: input.url, type: string }
+  method: { from: input.method, type: string, optional: true }
+  body: { from: input.body, type: object, optional: true }
+
+output:
+  status: { type: number }
+  body: { type: object, optional: true }
+
+permissions:
+  network: [{ any_host: true, note: "REST публичные API" }]
+  filesystem: none
+  secrets: [API_KEY]
+
+`
+	mainPy := `#!/usr/bin/env python3
+"""` + id + ` — REST API коннектор (--template=rest-api).
+Секреты: API_KEY (опц., в env), для тестов MOCK=1.
+"""
+import json, os, sys
+` + sharedPrelude + `
+def main():
+    data = read_input()
+    if data is None: return 2
+    url = (data.get("url") or "").strip()
+    if not url: return fail("empty_input", "поле url пустое")
+    method = (data.get("method") or "GET").upper()
+    if os.environ.get("MOCK") == "1":
+        return ok({"status": 200, "body": {"mock": True, "url": url, "method": method}})
+    try:
+        import requests
+        headers = {}
+        if os.environ.get("API_KEY"):
+            headers["Authorization"] = "Bearer " + os.environ["API_KEY"]
+        r = requests.request(method, url, json=data.get("body"), headers=headers, timeout=10)
+        try: body = r.json()
+        except: body = {"text": r.text[:2000]}
+        return ok({"status": r.status_code, "body": body})
+    except Exception as e:
+        return fail("request_failed", str(e))
+
+if __name__ == "__main__": sys.exit(main())
+`
+	tests := `tests:
+  - name: мок REST
+    input: { url: "https://example.com/api", method: "GET" }
+    env: { MOCK: "1" }
+    expect: { status: ok, output: { status: 200, body: { type: object } } }
+  - name: пустой url — ошибка
+    input: { url: "   " }
+    expect: { status: error, exit_code: 1, error: { code: empty_input } }
+  - name: битый JSON
+    input_raw: "{broken"
+    expect: { exit_code: 2 }
+`
+	return pluginFiles{manifest: manifest, mainPy: mainPy, tests: tests, readme: generatedReadme(id, desc, "REST коннектор: url+method+body → status+body. Секрет API_KEY в env, MOCK=1 для тестов.", "")}, nil
+}
+
+func buildSMTP(id string, opts CreateOptions) (pluginFiles, error) {
+	desc := opts.Description
+	if desc == "" {
+		desc = "Коннектор SMTP: отправка почты"
+	}
+	manifest := `id: ` + id + `
+version: 0.1.0
+platform_api: "^0.1"
+description: ` + yamlQuote(desc) + `
+author: ` + yamlQuote(opts.Author) + `
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+input:
+  to: { from: input.to, type: string }
+  subject: { from: input.subject, type: string }
+  body: { from: input.body, type: string }
+output:
+  sent: { type: boolean }
+permissions:
+  network: [{ any_host: true, note: "smtp:587/465" }]
+  filesystem: none
+  secrets: [SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_PORT]
+
+`
+	mainPy := `#!/usr/bin/env python3
+"""` + id + ` — SMTP коннектор (--template=smtp).
+Секреты: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS. MOCK=1 для тестов.
+"""
+import json, os, sys
+` + sharedPrelude + `
+def main():
+    data = read_input()
+    if data is None: return 2
+    to, subj, body = data.get("to"), data.get("subject"), data.get("body")
+    if not to or not subj or not body: return fail("empty_input", "поля to/subject/body обязательны")
+    if os.environ.get("MOCK") == "1":
+        return ok({"sent": True})
+    host = os.environ.get("SMTP_HOST")
+    if not host: return fail("missing_secret", "SMTP_HOST не задан (env)")
+    try:
+        import smtplib; from email.mime.text import MIMEText
+        port = int(os.environ.get("SMTP_PORT") or "587")
+        user = os.environ.get("SMTP_USER"); pwd = os.environ.get("SMTP_PASS")
+        msg = MIMEText(body); msg["Subject"]=subj; msg["From"]=user or "noreply@wedra.local"; msg["To"]=to
+        s = smtplib.SMTP(host, port, timeout=10); s.starttls()
+        if user and pwd: s.login(user, pwd)
+        s.send_message(msg); s.quit()
+        return ok({"sent": True})
+    except Exception as e: return fail("smtp_failed", str(e))
+
+if __name__ == "__main__": sys.exit(main())
+`
+	tests := `tests:
+  - name: мок отправка
+    input: { to: "a@b.c", subject: "hi", body: "test" }
+    env: { MOCK: "1" }
+    expect: { status: ok, output: { sent: true } }
+  - name: пустой to — ошибка
+    input: { to: "", subject: "hi", body: "x" }
+    expect: { status: error, error: { code: empty_input } }
+`
+	return pluginFiles{manifest: manifest, mainPy: mainPy, tests: tests, readme: generatedReadme(id, desc, "SMTP: to/subject/body → sent. Секреты SMTP_* в env, MOCK=1 для тестов.", "")}, nil
+}
+
+func buildPostgres(id string, opts CreateOptions) (pluginFiles, error) {
+	desc := opts.Description
+	if desc == "" {
+		desc = "Коннектор Postgres: query → rows"
+	}
+	manifest := `id: ` + id + `
+version: 0.1.0
+platform_api: "^0.1"
+description: ` + yamlQuote(desc) + `
+author: ` + yamlQuote(opts.Author) + `
+runtime:
+  type: python
+  entry: main.py
+  requires: ["psycopg2-binary==2.9.10"]
+input:
+  query: { from: input.query, type: string }
+  params: { from: input.params, type: array, optional: true }
+output:
+  rows: { type: array }
+permissions:
+  network: [{ any_host: true, note: "postgres:5432 — локальная сеть" }]
+  filesystem: none
+  secrets: [PG_DSN]
+
+`
+	mainPy := `#!/usr/bin/env python3
+"""` + id + ` — Postgres коннектор (--template=postgres).
+Секрет: PG_DSN=postgres://user:pass@host:5432/db . MOCK=1 для тестов.
+"""
+import json, os, sys
+` + sharedPrelude + `
+def main():
+    data = read_input()
+    if data is None: return 2
+    q = (data.get("query") or "").strip()
+    if not q: return fail("empty_input", "поле query пустое")
+    if os.environ.get("MOCK") == "1":
+        return ok({"rows": [{"mock": 1}]})
+    dsn = os.environ.get("PG_DSN")
+    if not dsn: return fail("missing_secret", "PG_DSN не задан")
+    try:
+        import psycopg2
+        conn = psycopg2.connect(dsn)
+        cur = conn.cursor(); cur.execute(q, data.get("params"))
+        rows = cur.fetchall() if cur.description else []
+        cur.close(); conn.close()
+        return ok({"rows": [list(r) for r in rows]})
+    except Exception as e: return fail("pg_failed", str(e))
+
+if __name__ == "__main__": sys.exit(main())
+`
+	tests := `tests:
+  - name: мок запрос
+    input: { query: "SELECT 1" }
+    env: { MOCK: "1" }
+    expect: { status: ok, output: { rows: { type: array } } }
+  - name: пустой query
+    input: { query: "   " }
+    expect: { status: error, error: { code: empty_input } }
+`
+	return pluginFiles{manifest: manifest, mainPy: mainPy, tests: tests, readme: generatedReadme(id, desc, "Postgres: query+params → rows. PG_DSN в env, MOCK=1 для тестов.", "")}, nil
+}
+
+func buildRedis(id string, opts CreateOptions) (pluginFiles, error) {
+	desc := opts.Description
+	if desc == "" {
+		desc = "Коннектор Redis: command → value"
+	}
+	manifest := `id: ` + id + `
+version: 0.1.0
+platform_api: "^0.1"
+description: ` + yamlQuote(desc) + `
+author: ` + yamlQuote(opts.Author) + `
+runtime:
+  type: python
+  entry: main.py
+  requires: ["redis==5.0.0"]
+input:
+  command: { from: input.command, type: string }
+  key: { from: input.key, type: string }
+  value: { from: input.value, type: string, optional: true }
+output:
+  value: { type: string, optional: true }
+permissions:
+  network: [{ any_host: true, note: "redis:6379 — локальная сеть" }]
+  filesystem: none
+  secrets: [REDIS_URL]
+
+`
+	mainPy := `#!/usr/bin/env python3
+"""` + id + ` — Redis коннектор (--template=redis).
+Секрет: REDIS_URL=redis://host:6379/0 . MOCK=1 для тестов.
+"""
+import json, os, sys
+` + sharedPrelude + `
+def main():
+    data = read_input()
+    if data is None: return 2
+    cmd, key = (data.get("command") or "GET").upper(), data.get("key")
+    if not key: return fail("empty_input", "поле key пустое")
+    if os.environ.get("MOCK") == "1":
+        return ok({"value": "mock:" + key})
+    url = os.environ.get("REDIS_URL") or "redis://localhost:6379/0"
+    try:
+        import redis
+        r = redis.from_url(url, decode_responses=True)
+        if cmd == "GET": v = r.get(key)
+        elif cmd == "SET": r.set(key, data.get("value") or ""); v = "OK"
+        elif cmd == "DEL": v = str(r.delete(key))
+        else: return fail("bad_input", "command ожидается GET/SET/DEL")
+        return ok({"value": v or ""})
+    except Exception as e: return fail("redis_failed", str(e))
+
+if __name__ == "__main__": sys.exit(main())
+`
+	tests := `tests:
+  - name: мок GET
+    input: { command: "GET", key: "foo" }
+    env: { MOCK: "1" }
+    expect: { status: ok, output: { value: { type: string } } }
+  - name: пустой key
+    input: { command: "GET", key: "" }
+    expect: { status: error, error: { code: empty_input } }
+`
+	return pluginFiles{manifest: manifest, mainPy: mainPy, tests: tests, readme: generatedReadme(id, desc, "Redis: command/key/value → value. REDIS_URL в env, MOCK=1 для тестов.", "")}, nil
 }
 
 // compileCheck проверяет регулярку движком Go, чтобы опечатку поймали при
