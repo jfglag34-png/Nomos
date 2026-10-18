@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sample-pkg"
+version = "1.4.2"
+description = "Минимальный проект для проверки Inspect: раскладка src-layout"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "httpx==0.27.0",      # единственная зависимость с точным пином
+    "rich>=13.7,<14.0",   # диапазон: в манифест не пишется
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+sample-parse = "sample_pkg.main:parse_cli"
+
+[tool.setuptools.packages.find]
+where = ["src"]

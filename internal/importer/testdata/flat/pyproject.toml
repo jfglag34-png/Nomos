@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flat-pkg"
+version = "2.0.0"
+description = "Раскладка flat: пакет лежит в корне, а не в src/"
+dependencies = ["click>=8.1"]
+
+[project.scripts]
+flat-parse = "flat_pkg.api:parse"
