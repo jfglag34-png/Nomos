@@ -1,4 +1,4 @@
-package core
+package plugincreate
 
 // Генератор плагинов по шаблонам.
 //
@@ -140,6 +140,17 @@ func findTemplate(name string) (pluginTemplate, bool) {
 		}
 	}
 	return pluginTemplate{}, false
+}
+
+func PyLiteralForTest(s string) (string, error) { return pyLiteral(s) }
+
+// templateNames exposes registry for core shim tests without exposing unexported type.
+func TemplateNames() []string {
+	out := make([]string, 0, len(templateRegistry()))
+	for _, t := range templateRegistry() {
+		out = append(out, t.name)
+	}
+	return out
 }
 
 // ListTemplates — текст для --list-templates. Тот же реестр, из которого

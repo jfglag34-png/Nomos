@@ -157,9 +157,9 @@ func TestTemplateUnknownRejected(t *testing.T) {
 
 func TestTemplateListMentionsEveryTemplate(t *testing.T) {
 	list := ListTemplates()
-	for _, tpl := range templateRegistry() {
-		if !strings.Contains(list, tpl.name) {
-			t.Errorf("шаблон %q не попал в перечень", tpl.name)
+	for _, tpl := range TemplateNames() {
+		if !strings.Contains(list, tpl) {
+			t.Errorf("шаблон %q не попал в перечень", tpl)
 		}
 	}
 	if !strings.Contains(list, "untrusted") {
@@ -200,7 +200,7 @@ func TestPyLiteralEscaping(t *testing.T) {
 		{`привет`, `'привет'`},
 	}
 	for _, c := range cases {
-		got, err := pyLiteral(c.in)
+		got, err := PyLiteralForTest(c.in)
 		if err != nil {
 			t.Errorf("pyLiteral(%q): %v", c.in, err)
 			continue
@@ -213,7 +213,7 @@ func TestPyLiteralEscaping(t *testing.T) {
 
 func TestPyLiteralRejectsControlChars(t *testing.T) {
 	for _, bad := range []string{"a\x00b", "a\x01b", "a\x7fb"} {
-		if got, err := pyLiteral(bad); err == nil {
+		if got, err := PyLiteralForTest(bad); err == nil {
 			t.Errorf("pyLiteral(%q) = %s, а должен был отказать", bad, got)
 		}
 	}

@@ -1,4 +1,4 @@
-package core
+package conformance
 
 import (
 	"context"
@@ -13,6 +13,11 @@ import (
 	"github.com/wykserdex/wedra/internal/pipeline"
 	"github.com/wykserdex/wedra/internal/plugin"
 )
+
+// локальные алиасы — ранее шли из internal/core/types.go, теперь без зависимости на core
+type Manifest = pipeline.Manifest
+
+var NewEngine = plugin.NewEngine
 
 // ConformanceCheck — одна проверка ядра/протокола.
 type ConformanceCheck struct {

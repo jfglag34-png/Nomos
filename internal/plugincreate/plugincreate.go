@@ -1,4 +1,4 @@
-package core
+package plugincreate
 
 // tool plugin create <path> — генератор скелета плагина (ТЗ v2 §6.1).
 // Критерий качества генератора: свежесозданный плагин СРАЗУ проходит
