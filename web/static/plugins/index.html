@@ -305,6 +305,25 @@
     *,*::before,*::after{animation-duration:.001s!important;animation-delay:0s!important;
       transition-duration:.001s!important}
   }
+
+    /* Подсказка доверия: не украшение, а ответ на вопрос «почему не запускается
+       и что делать». Моноширинный блок с entry — его копируют буквально, поэтому
+       показываем в том виде, в котором строка должна лечь в файл. */
+    #trust-hint{
+      margin:10px 0 0;padding:12px 14px;border:1px solid var(--hair2);
+      border-left:3px solid var(--warn,var(--acc));border-radius:var(--r);
+      background:var(--sunken);
+    }
+    #trust-hint h4{margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--acc-hi)}
+    #trust-hint p{margin:0 0 8px;line-height:1.55;font-size:13px}
+    #trust-hint .clip{
+      margin:0 0 8px;padding:8px 10px;background:var(--bg,#111);
+      border:1px solid var(--hair2);border-radius:var(--r);
+      font-family:var(--mono,monospace);font-size:12px;
+      white-space:pre;overflow-x:auto;user-select:all;
+    }
+    #trust-hint .hint{margin:0;font-size:12px;color:var(--dim)}
+    #trust-hint code{font-family:var(--mono,monospace);font-size:12px}
 </style>
 </head>
 <body>
@@ -399,13 +418,19 @@
             <button data-f="requirements.lock">Зависимости <span class="fn">requirements.lock</span><span class="dt" hidden></span></button>
           </nav>
 
-          <div id="meta">
+<div id="meta">
             <span class="path" id="m-path">плагин не выбран</span>
             <span class="sp"></span>
             <span class="tag any" id="m-miss" hidden></span>
             <span class="tag" id="m-trust">—</span>
             <span id="m-sha"></span>
           </div>
+
+          <!-- Что делать с плагином, которому не доверено. На Linux он
+               запустится в изоляции и подсказка не нужна; на Windows и macOS
+               изолятора нет, и без этой подсказки человек упирается в стену,
+               не зная, что проходит по правильной причине. -->
+          <div id="trust-hint" hidden></div>
 
           <div class="editors">
             <textarea class="editor" id="f-plugin.yaml" spellcheck="false" wrap="off" hidden></textarea>

@@ -70,6 +70,10 @@ func TestGUIEmbeddedStatic(t *testing.T) {
 		{"/plugins/app.js", "async function save()"},
 		{"/plugins/app.js", "async function runTests()"},
 		{"/plugins/app.js", "async function createPlugin"},
+		// Подсказка доверия отвечает на вопрос «почему не запускается и что
+		// делать». На Windows/macOS без неё редактор упирается в стену.
+		{"/plugins/", "id=\"trust-hint\""},
+		{"/plugins/app.js", "renderTrustHint"},
 	}
 	for _, c := range cases {
 		resp, err := http.Get(ts.URL + c.path)

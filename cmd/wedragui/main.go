@@ -90,6 +90,7 @@ func main() {
 
 	srv := api.NewServer(dirs.Plugins, dirs.Pipelines, dirs.Runs)
 	srv.Trusted = trusted
+	srv.TrustConfigPath = resolveDesktopTrustConfig(trustCfg)
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
 		fmt.Println("порт недоступен:", err)

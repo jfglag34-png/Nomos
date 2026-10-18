@@ -71,8 +71,17 @@ type Server struct {
 
 	// v0.9: одноразовый код обмена (EnableSession) и живые сессии. Пустой
 	// PairingCode — сессия не требуется (--no-session, встраивание, тесты).
-	// Только в памяти процесса; в cookie — токен с TTL, не секрет.
 	PairingCode string
+
+	// TrustConfigPath — КАК ИМЕННО оператор задал доверие: путь к
+	// wedra-trust.yaml, который реально выбран (флаг, переменная, каталог
+	// бинаря) или пустая строка, если выбран встроенный allow-list.
+	//
+	// Это не деталь реализации: без него редактор плагинов может только
+	// сказать «плагин не доверен», а человеку на Windows неизвестно, куда
+	// положить файл, чтобы он заработал. Пустой путь — само по себе полезный
+	// ответ: значит доверять можно только флагом или переменной окружения.
+	TrustConfigPath string
 
 	// StaticDir — каталог с фронтендом (index.html, app.js, editor/).
 	// Пусто = встроенный (go:embed) фронтенд. Раньше каталог web/static
@@ -395,6 +404,7 @@ func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", s.handleHealth)
 	mux.HandleFunc("/api/session", s.handleSession)
+	mux.HandleFunc("/api/trust", s.handleTrust)
 	mux.HandleFunc("/api/plugins", s.handlePluginsRoot)
 	mux.HandleFunc("/api/plugins/", s.handlePluginSubtree)
 	mux.HandleFunc("/api/plugins-install-deps", s.handlePluginInstallDeps)

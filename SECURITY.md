@@ -329,6 +329,38 @@ implemented", not "the platform forbids it". The measurements above are not
 reproducible from this tree — the probe and its Go prototype are not committed —
 so treat them as recorded findings, not as a test.
 
+### What a Windows user can do today: trust their own code
+
+Fail-closed applies to code that is **not** in the allow-list. A plugin that is
+in the allow-list runs with user rights and needs no isolator, on Windows
+included. That makes the editor, the importer and the store usable on Windows
+for the case they exist for — a person writing their own plugin:
+
+1. write the plugin (editor, importer, or a text editor);
+2. it is not trusted — its content hash differs from any allow-list entry, and
+   an isolator does not exist on this platform, so a run is refused;
+3. read the new hash from `GET /api/plugins/<id>/source` (`content_sha256`);
+4. add `"<id>@<sha256:…>"` to `trusted_plugins` in `wedra-trust.yaml`;
+5. it runs.
+
+Step 4 is a deliberate decision by a person, and it is the whole point of
+trusting by content hash rather than by name. The editor shows the exact line to
+copy and the path the running server actually reads, because the file is
+deliberately **not** read from the working directory: a clone of a repository
+with an appended `wedra-trust.yaml` once passed every check while silently
+widening the allow-list.
+
+`GET /api/trust` reports the search order (`--trust-config`, then
+`WEDRA_TRUST_CONFIG`, then the binary directory) and whether the file exists. An
+empty `config_path` is itself an answer: only the flag or the variable can
+configure trust.
+
+This route does **not** make third-party code safe on Windows. It grants user
+rights to code the operator has chosen, which is the same trust model as every
+other install-and-trust tool, and it is not a boundary against hostile code.
+That boundary remains the AppContainer backend above, which is implementable and
+still unwritten.
+
 If the backend is missing, or the host forbids creating one, the run stops
 with `platform:sandbox_unavailable` before any process is created. The
 availability probe runs once per process: `bwrap` is verified by actually

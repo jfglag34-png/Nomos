@@ -41,6 +41,8 @@ let st = {
   pipelines: null,      // только ради числа в рельсе; null = не считали
   current: null,        // выбранный id
   drafts: {},           // id -> {files, dirty, dir, missing, trusted, sha, report, loaded}
+  trust: null,          // ответ /api/trust: где живёт конфиг доверия оператора
+  no_isolator: false,   // изолятора на этой платформе нет (Windows/macOS)
   tab: 'plugin.yaml',   // открытый файл
   q: '',                // поиск в списке
   busy: false,          // идёт запрос к серверу — кнопки заблокированы
@@ -179,6 +181,9 @@ function newDraft(id) {
     missing: [],      // каких файлов нет на диске (ответ GET /source)
     trusted: false,
     sha: '',
+    // Причина отказа в запуске: на Windows/macOS она говорит, что изолятора
+    // нет, и это меняет подсказку — «запустится в песочнице» там было бы враньём.
+    blocked_reason: '',
     report: null,     // последний отчёт: валидация, запись или тесты
     loaded: false,
   };
@@ -289,6 +294,41 @@ function renderMeta() {
   } else {
     miss.hidden = true;
   }
+  renderTrustHint(d);
+}
+
+// renderTrustHint — что делать с плагином, которому не доверено.
+//
+// Формулировка зависит от изолятора, и это не украшение: на Linux такой плагин
+// просто запустится в bwrap, и доверять его не нужно. На Windows и macOS
+// изолятора в проекте нет, поэтому там единственный способ запустить СВОЙ код —
+// внести хэш в конфиг оператора. Без этой подсказки человек видит «внешний код»
+// и упирается в стену, не понимая, что стена проходит по правильной причине.
+function renderTrustHint(d) {
+  const box = $('#trust-hint');
+  if (!box) return;
+  if (!d || !d.loaded || d.trusted || !d.sha) {
+    box.hidden = true;
+    box.innerHTML = '';
+    return;
+  }
+  box.hidden = false;
+  const entry = d.id + '@' + d.sha;
+  const iso = d.blocked_reason || '';
+  const noIso = /windows|macos|нет\b/i.test(iso) || st.no_isolator;
+  const where = st.trust && st.trust.config_path
+    ? 'Файл: <code>' + esc(st.trust.config_path) + '</code>'
+    : 'Файл доверия не выбран: задайте <code>--trust-config=&lt;путь&gt;</code> или <code>WEDRA_TRUST_CONFIG</code>. Рабочий каталог не читается намеренно.';
+  box.innerHTML =
+    '<h4>Плагину не доверено</h4>' +
+    (noIso
+      ? '<p>На этой платформе изолятора нет: недоверенный код не запустится вообще. ' +
+        'Если это <b>ваш</b> код — внесите его хэш в конфиг доверия оператора, и он получит ' +
+        'права пользователя. Чужой код так запускать нельзя.</p>'
+      : '<p>Запуск возможен в изоляции (Linux, bwrap) — доверять его не нужно. ' +
+        'Чтобы доверен был и он, внесите хэш в конфиг оператора.</p>') +
+    '<pre class="clip">' + esc('  - "' + entry + '"') + '</pre>' +
+    '<div class="hint">' + where + '</div>';
 }
 
 // ── вкладки и поля ─────────────────────────────────────────────────────────
@@ -413,6 +453,7 @@ async function select(id) {
     d.dir = s.dir || '';
     d.trusted = s.trusted === true;
     d.sha = s.content_sha256 || '';
+    d.blocked_reason = s.blocked_reason || '';
     d.missing = Array.isArray(s.missing) ? s.missing : [];
     FILES.forEach(f => { d.files[f] = typeof s.files[f] === 'string' ? s.files[f] : ''; });
     d.dirty = {};
@@ -555,6 +596,7 @@ async function save() {
     d.dirty = {};
     d.trusted = res.trusted === true;
     d.sha = res.content_sha256 || d.sha;
+    d.blocked_reason = res.blocked_reason || '';
     // Файл, которого не было, теперь есть — снимаем отметку «нет файла».
     d.missing = (d.missing || []).filter(f => written.indexOf(f) < 0);
     syncListTrust(d.id, d.trusted, d.sha);
@@ -743,6 +785,14 @@ FILES.forEach(f => {
 // ── старт ──────────────────────────────────────────────────────────────────
 (async function init() {
   if (!await wedraSession()) return;
+  // Сведения о доверии нужны подсказке «как запустить свой плагин». Это НЕ
+  // обязательный шаг: консоль обязана открыться и без него, поэтому ошибка
+  // молча превращается в нейтральный текст, а не в пустую страницу.
+  try {
+    st.trust = await api('/api/trust');
+  } catch (e) {
+    st.trust = {error: e.message};
+  }
   try {
     await loadPlugins();
   } catch (e) {

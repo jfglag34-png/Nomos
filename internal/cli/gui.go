@@ -118,6 +118,10 @@ func RunGUI(args []string) {
 	}
 	srv := api.NewServer(dirs.Plugins, dirs.Pipelines, dirs.Runs)
 	srv.Trusted = trusted
+	// Тот же путь, что пошёл в EffectiveAllowList: редактор плагинов на
+	// платформе без изолятора обязан сказать, КУДА положить файл доверия, а не
+	// только «не доверен».
+	srv.TrustConfigPath = trustConfigPath(trustCfg)
 	srv.StaticDir = staticDir
 	ln, err := net.Listen("tcp", opts.Addr)
 	if err != nil {
