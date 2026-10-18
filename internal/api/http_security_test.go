@@ -127,6 +127,9 @@ func TestSessionRequiredOnEveryAPIRead(t *testing.T) {
 		"/api/runs/" + runID + "/journal?since=0",
 		"/api/runs/" + runID + "/gate",
 		"/api/store",
+		"/api/plugins/x/source",
+		"/api/plugins/x/validate",
+		"/api/plugins/x/test",
 		"/api/unknown-endpoint",
 	}
 	for _, path := range reads {

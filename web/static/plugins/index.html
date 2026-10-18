@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>WEDRA — редактор плагинов</title>
+<style>
+  /* Четвёртый экран — редактор плагинов. Отдельная страница, а не вкладка в
+     артефактах: здесь правят исполняемый код, и его последствия (плагин перестаёт
+     быть доверенным, тесты зовут Python) не должны смешиваться с загрузкой
+     файлов. Каркас — копия web/static/artifacts/index.html: рельса разделов,
+     топбар режимов, две колонки. Разметка и правила повторяются здесь, потому
+     что каждая страница несёт свой <style>: сборки фронтенда нет. ─────────── */
+  /* ── Палитра v0.39 ───────────────────────────────────────────────────────
+        Направление выбрано после разбора оформления конкурентов: холодный
+        графит вместо фиолетово-чёрного, глубина ЦВЕТОМ вместо теней, один
+        акцент на всё приложение.
+
+        ЧТО ЗДЕСЬ ПРИНЦИПИАЛЬНО, а не «какие-нибудь цвета»:
+
+        1. ОДИН акцент — --acc (бирюза). Живёт на главном действии, на живых
+           связях холста и на фокусе. Больше нигде.
+        2. ТЁПЛОЕ — только смысл. --err / --ok / --skip никогда не украшают.
+           Отсюда же ушла неразбериха: раньше --err (#cf5344) и --ver (#c9482f)
+           были почти одним оттенком, и «ошибка» не отличалась от главной
+           кнопки. Теперь акцент холодный, ошибка тёплая.
+        3. --faint: в палитре задан #68757f, но он НЕ проходит WCAG AA для
+           обычного текста — 3.84 на фоне и 3.03 на самой светлой поверхности
+           при требуемых 4.5. Взят ближайший оттенок того же тона,
+           проходящий AA на всех пяти поверхностях: #86939d (худшая — 4.55).
+           Это осознанная плата: разрыв с --ash (#93a0aa) сжимается с 2.95
+           до 1.01 по контрасту, и два приглушённых уровня становятся близки.
+           Проверено функцией контраста, не на глаз.
+        4. Глубина — цветом: --ink → --ink2 → --ink3 → --ink4, вдавленные
+           поверхности — --sunken. Теней для глубины нет нигде.
+        ───────────────────────────────────────────────────────────────────── */
+  :root{
+    /* поверхности: от базы вглубь */
+    --ink:#12161a; --ink2:#181d22; --ink3:#1e242a; --ink4:#242b32;
+    --sunken:#0e1215;
+    /* текст: базовый → приглушённый → совсем тихий */
+    --bone:#d7dde2; --ash:#93a0aa; --faint:#86939d;
+    /* волосяные линии — холодный белый, тот же тон, что у палитры */
+    --hair:rgba(198,214,226,.09); --hair2:rgba(198,214,226,.17);
+    /* акцент: ОДИН на всё приложение */
+    --acc:#2fa8a0; --acc-hi:#38bdb4;
+    /* семантика: тёплое только смысл, никогда украшение */
+    --ok:#5fa97a; --err:#e0524a; --skip:#d9a441; --par:#8b93a8;
+    --mono:"Cascadia Mono","Cascadia Code",Consolas,ui-monospace,Menlo,monospace;
+    --sans:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
+    --r:3px; --hdr:42px;
+    /* Плотность — те же токены и те же умолчания, что в консоли: без них пресет
+       плотности из prefs.js не смог бы попасть в рельсу этой страницы. */
+    --row-py:7px; --row-px:12px;
+    /* Ширина рельсы — тот же токен, что и в консоли: prefs.js переопределяет
+       его всегда (и «свёрнутая» рельса — тоже пресет, а не media-query). */
+    --rail-w:206px;
+    /* см. комментарий в консоли: базовый кегль по умолчанию — свой у каждой
+       страницы, prefs.js переопределяет только для нестандартной плотности */
+    --fs-base:12.5px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ink);color:var(--bone);
+    font-size:var(--fs-base);line-height:1.55;font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  ::selection{background:rgba(47,168,160,.32)}
+  *{scrollbar-width:thin;scrollbar-color:#2b343c transparent}
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-thumb{background:#2b343c;border:3px solid transparent;background-clip:content-box}
+  ::-webkit-scrollbar-thumb:hover{background:#3b464f;background-clip:content-box}
+  :focus-visible{outline:1px solid var(--acc);outline-offset:2px}
+
+  /* ── каркас: тот же, что в консоли, редакторе и артефактах ─────────────────
+     Одна навигация в приложении, иначе страница выглядит как другой продукт.
+     Дублируется здесь потому, что каждая страница несёт свой <style>. ── */
+  .shell{display:flex;height:100vh;overflow:hidden}
+
+  .rail{width:var(--rail-w);flex:none;display:flex;flex-direction:column;
+    background:var(--sunken);border-right:1px solid var(--hair);overflow-y:auto}
+  .rail-top{display:flex;align-items:center;gap:8px;padding:0 12px;
+    height:var(--hdr);border-bottom:1px solid var(--hair);flex:none}
+  .rail-logo{font-size:12.5px;font-weight:600;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--bone);white-space:nowrap}
+  .rail-top .sp{margin-left:auto}
+  /* «+» — создать пайплайн. Единственная кнопка со знаком в рельсе. */
+  .rail-new{width:22px;height:22px;border:1px solid var(--hair2);border-radius:var(--r);
+    background:transparent;color:var(--ash);cursor:pointer;font-size:14px;line-height:1;
+    display:flex;align-items:center;justify-content:center;padding:0;flex:none;
+    text-decoration:none}
+  .rail-new:hover{color:var(--bone);border-color:var(--bone)}
+  .rail-sec{margin:14px 0 4px;padding:0 12px;font-size:9px;letter-spacing:.17em;
+    text-transform:uppercase;color:var(--faint)}
+  .rail-item{display:flex;align-items:center;gap:9px;width:100%;padding:var(--row-py) var(--row-px);
+    background:transparent;border:0;border-left:2px solid transparent;
+    color:var(--ash);font:inherit;font-size:12px;text-align:left;cursor:pointer;
+    text-decoration:none;transition:color .12s,background .12s}
+  .rail-item:hover{color:var(--bone);background:rgba(255,255,255,.03)}
+  .rail-item.active{color:var(--bone);border-left-color:var(--bone);background:rgba(255,255,255,.04)}
+  .rail-item .ri-dot{width:5px;height:5px;border-radius:50%;background:var(--faint);flex:none}
+  .rail-item.active .ri-dot{background:var(--bone)}
+  .rail-item .ri-n{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--faint)}
+  /* Свёрнутая рельса — пресет настройки (prefs.js ставит класс на <html>). */
+  html.rail-collapsed .rail-item span.lbl,html.rail-collapsed .rail-logo,
+  html.rail-collapsed .rail-note,html.rail-collapsed .rail-sec{display:none}
+  html.rail-collapsed .rail-item{justify-content:center;padding:9px 0}
+  .rail-item .ri-ico{display:none;font-size:13px;line-height:1}
+  html.rail-collapsed .rail-item .ri-ico{display:inline}
+  /* Помощь и «Что нового» в консоли живут внизу рельсы отдельной зоной: они
+     открывают панели, наполненные данными консоли. Здесь их нет. */
+  .rail-foot{margin-top:auto;padding:10px 0 12px;border-top:1px solid var(--hair);flex:none}
+  .rail-note{padding:8px 12px 0;font-size:10.5px;color:var(--faint);line-height:1.55}
+
+  /* Правая часть: топбар режимов + рабочая область. */
+  .work{flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden}
+  .topbar{display:flex;align-items:center;gap:14px;height:var(--hdr);padding:0 16px;
+    border-bottom:1px solid var(--hair);background:var(--ink);flex:none}
+  .modes{display:flex;gap:2px;align-items:center;height:100%;min-width:0;overflow:hidden}
+  .modes a{display:flex;align-items:center;height:100%;padding:0 13px;
+    background:transparent;border:0;border-bottom:2px solid transparent;color:var(--ash);
+    font:inherit;font-size:11.5px;cursor:pointer;text-decoration:none;transition:color .12s;white-space:nowrap}
+  .modes a:hover{color:var(--bone)}
+  .modes a.active{color:var(--bone);border-bottom-color:var(--bone)}
+  .modes .objname{font-family:var(--mono);font-size:11.5px;color:var(--faint);
+    margin-left:8px;padding-left:13px;border-left:1px solid var(--hair);white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;max-width:34ch}
+  .topbar .sp{margin-left:auto}
+
+  main{display:grid;grid-template-columns:minmax(280px,340px) minmax(0,1fr);gap:18px;padding:20px;
+    align-items:stretch;flex:1;min-height:0;overflow:hidden;width:100%;max-width:1600px;margin:0 auto}
+  /* Левая колонка своя прокрутка: список плагинов длинный, и он не должен
+     выталкивать правую часть за экран. */
+  .col-left{display:flex;flex-direction:column;gap:18px;min-height:0;overflow-y:auto}
+  .col-right{display:flex;flex-direction:column;min-height:0;min-width:0}
+  .card{background:var(--ink2);border:1px solid var(--hair);border-radius:var(--r);padding:16px}
+  .card.grow{flex:1;min-height:0;display:flex;flex-direction:column;padding:0}
+  .card h2{margin:0 0 6px;font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);
+    font-weight:500;display:flex;align-items:center;gap:9px}
+  .card h2::after{content:"";height:1px;flex:1;background:var(--hair)}
+  .card p.hint{margin:0 0 13px;color:var(--ash);font-size:12px;line-height:1.65}
+
+  input[type=text],input[type=search],select,textarea{background:var(--sunken);color:var(--bone);
+    border:1px solid var(--hair);border-radius:var(--r);padding:7px 10px;font-size:12px;
+    font-family:var(--mono);width:100%}
+  input[type=text]:focus,input[type=search]:focus,select:focus,textarea:focus{
+    outline:none;border-color:var(--acc)}
+  input::placeholder{color:var(--faint)}
+  select{cursor:pointer}
+
+  /* Список плагинов — кнопки во всю ширину, как подсказки в артефактах */
+  .pluglist{display:flex;flex-direction:column;gap:5px;margin-top:10px;max-height:min(46vh,420px);
+    overflow-y:auto}
+  .plug{display:flex;align-items:center;gap:9px;padding:8px 11px;background:var(--ink3);
+    border:1px solid var(--hair);border-left:2px solid transparent;border-radius:var(--r);
+    cursor:pointer;text-align:left;width:100%;font-family:inherit;letter-spacing:0;
+    text-transform:none;font-size:12px}
+  .plug:hover{border-color:var(--hair2);background:var(--ink4)}
+  .plug.on{border-left-color:var(--bone);background:var(--ink4)}
+  .plug .nm{font-family:var(--mono);font-size:11.5px;flex:1;min-width:0;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  .plug .why{font-size:10px;color:var(--faint);white-space:nowrap;font-family:var(--mono)}
+  /* Точка несохранённой правки — единственный знак, что черновик жив: терять
+     правку молча нельзя, а модального окна ради этого в проекте нет. */
+  .plug .dirty{width:5px;height:5px;border-radius:50%;background:var(--skip);flex:none}
+  .tag{font-size:9px;letter-spacing:.1em;text-transform:uppercase;padding:1px 6px;
+    border:1px solid var(--hair2);border-radius:var(--r);color:var(--faint);white-space:nowrap;flex:none}
+  .tag.ok{border-color:rgba(95,169,122,.5);color:var(--ok)}
+  .tag.ext{border-color:rgba(224,82,74,.5);color:var(--err)}
+  .tag.any{border-color:rgba(217,164,65,.5);color:var(--skip)}
+
+  /* Форма создания: поля в столбик, узкие и подписанные. */
+  .field{margin-bottom:10px}
+  .field label{display:block;font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;
+    color:var(--faint);margin-bottom:5px}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
+  /* ── вкладки файлов ────────────────────────────────────────────────────
+     Четыре файла плагина, каждый — вкладка. Вкладка помечена точкой, если в
+     ней есть несохранённая правка: потерять её молча нельзя. ── */
+  .ptabs{display:flex;gap:2px;align-items:stretch;padding:0 12px;border-bottom:1px solid var(--hair);
+    background:var(--ink2);border-radius:var(--r) var(--r) 0 0;flex:none;overflow-x:auto}
+  .ptabs button{display:flex;align-items:center;gap:7px;background:transparent;border:0;
+    border-bottom:2px solid transparent;color:var(--ash);font:inherit;font-size:11.5px;
+    padding:10px 11px;cursor:pointer;white-space:nowrap;letter-spacing:0;text-transform:none}
+  .ptabs button:hover{color:var(--bone)}
+  .ptabs button.active{color:var(--bone);border-bottom-color:var(--bone)}
+  .ptabs .fn{font-family:var(--mono);font-size:10px;color:var(--faint)}
+  .ptabs button.active .fn{color:var(--ash)}
+  .ptabs .dt{width:5px;height:5px;border-radius:50%;background:var(--skip);flex:none}
+
+  #meta{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--hair);
+    font-size:11px;color:var(--faint);font-family:var(--mono);flex-wrap:wrap;flex:none}
+  #meta .path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:46ch}
+  #meta .sp{margin-left:auto}
+
+  .editors{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--sunken)}
+  textarea.editor{flex:1;width:100%;border:0;border-radius:0;background:var(--sunken);resize:none;
+    padding:14px 16px;font-size:12.5px;line-height:1.7;tab-size:4;min-height:160px}
+  textarea.editor:focus{outline:none}
+  textarea.editor[hidden]{display:none}
+
+  .actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px 14px;
+    border-top:1px solid var(--hair);flex:none}
+  button{background:transparent;color:var(--bone);border:1px solid var(--hair2);border-radius:var(--r);
+    padding:6px 12px;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;
+    font-family:inherit}
+  button:hover{border-color:var(--bone)}
+  button.primary{background:var(--bone);border-color:var(--bone);color:var(--ink);font-weight:600}
+  button.primary:hover{background:#fff;border-color:#fff}
+  button:disabled{opacity:.4;cursor:default}
+  button:disabled:hover{border-color:var(--hair2)}
+  .actions .sp{margin-left:auto}
+
+  #status{margin:0 14px 10px;padding:8px 11px;border-radius:var(--r);font-size:12px;
+    background:var(--sunken);border:1px solid var(--hair);min-height:18px;flex:none}
+  #status:empty{display:none}
+  #status.ok{color:var(--ok);border-color:rgba(95,169,122,.4)}
+  #status.err{color:var(--err);border-color:rgba(224,82,74,.4)}
+  #status.busy{color:var(--bone);border-color:var(--acc)}
+  #status.warn{color:var(--skip);border-color:rgba(217,164,65,.4)}
+
+  button#np-create{margin-top:2px}
+  #np-err{margin-top:10px;font-size:11.5px;line-height:1.6;color:var(--err);white-space:pre-wrap}
+  #np-err:empty{display:none}
+
+  /* Отчёты: ошибки, предупреждения и падения тестов — списком с кодами.
+     Молчаливый «проверено, всё хорошо» здесь был бы враньём: человек должен
+     видеть и код, и текст. */
+  .report{margin:0 14px 14px;flex:none;max-height:min(34vh,300px);overflow-y:auto}
+  .report[hidden]{display:none}
+  .rep-sec{display:flex;align-items:center;gap:9px;font-size:9.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--faint);margin:2px 0 7px}
+  .rep-sec::after{content:"";height:1px;flex:1;background:var(--hair)}
+  .rep-sec.err{color:var(--err)}
+  .rep-sec.warn{color:var(--skip)}
+  .issue{display:flex;gap:10px;padding:7px 10px;background:var(--sunken);
+    border:1px solid var(--hair);border-left:2px solid var(--hair2);border-radius:var(--r);
+    margin-bottom:6px;font-size:12px;line-height:1.6}
+  .issue.err{border-left-color:var(--err)}
+  .issue.warn{border-left-color:var(--skip)}
+  .issue .code{font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:var(--ash);
+    white-space:nowrap;flex:none;padding-top:1px}
+  .issue.err .code{color:var(--err)}
+  .issue.warn .code{color:var(--skip)}
+  .issue .msg{color:var(--bone);word-break:break-word}
+  .issue .where{color:var(--faint);font-family:var(--mono);font-size:10.5px}
+
+  .tcase{display:flex;gap:10px;align-items:flex-start;padding:7px 10px;background:var(--sunken);
+    border:1px solid var(--hair);border-left:2px solid var(--ok);border-radius:var(--r);
+    margin-bottom:6px;font-size:12px;line-height:1.6}
+  .tcase.bad{border-left-color:var(--err)}
+  .tcase .mark{font-family:var(--mono);font-size:11px;color:var(--ok);flex:none}
+  .tcase.bad .mark{color:var(--err)}
+  .tcase .nm{font-family:var(--mono);font-size:11.5px;color:var(--bone);flex:none;max-width:34ch;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tcase .dtl{color:var(--ash);word-break:break-word;min-width:0}
+
+  .empty{color:var(--faint);font-size:12.5px;padding:14px 0;line-height:1.7}
+
+  /* вход по одноразовому коду (разметка собирается в plugins/app.js) */
+  #wedra-session-box{position:fixed;inset:0;background:rgba(7,7,8,.94);display:flex;
+    align-items:center;justify-content:center;z-index:9999;padding:20px}
+  #wedra-session-box .sbox{background:var(--ink2);border:1px solid var(--hair2);border-radius:var(--r);
+    padding:26px;max-width:440px;width:100%;box-shadow:0 30px 60px -40px #000}
+  #wedra-session-box h2{font-family:var(--sans);margin:0 0 10px;font-size:20px;font-weight:600}
+  #wedra-session-box p{color:var(--ash);font-size:12.5px;line-height:1.7;margin:0 0 16px}
+  #wedra-session-box input{width:100%;box-sizing:border-box;background:var(--sunken);color:var(--bone);
+    border:1px solid var(--hair2);border-radius:var(--r);padding:10px 11px;font-family:var(--mono);
+    font-size:14px;letter-spacing:.14em}
+  #wedra-session-box input:focus{outline:none;border-color:var(--acc)}
+  #wedra-session-box .serr{color:var(--err);font-size:11.5px;margin-top:9px;min-height:16px}
+  #wedra-session-box button{margin-top:12px;width:100%;background:var(--bone);color:var(--ink);
+    border:1px solid var(--bone);border-radius:var(--r);padding:11px;font-size:10.5px;letter-spacing:.16em;
+    text-transform:uppercase;font-weight:600;cursor:pointer;font-family:inherit}
+  #wedra-session-box button:hover{background:#fff}
+
+  /* ── переходы ───────────────────────────────────────────────────────────
+     Список плагинов, отчёты и вкладки перерисовываются целиком на каждое
+     действие, поэтому у них только transition: иначе текст мигал бы под
+     мышью. Анимируется то, что появляется на действие: ответ проверки, падение
+     теста, смена вкладки. ── */
+  @keyframes pageIn{from{opacity:0}to{opacity:1}}
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+  @keyframes slideDown{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+  body{animation:pageIn .3s ease-out}
+  #status,.report,.empty,textarea.editor{animation:fadeIn .22s ease-out}
+  #status{animation:slideDown .24s cubic-bezier(.22,.61,.36,1)}
+  button,.modes a,.rail-item,.plug,.tag,.ptabs button{
+    transition:color .16s ease,background-color .16s ease,border-color .16s ease,
+      box-shadow .18s ease,opacity .16s ease}
+  .plug{transition:color .16s ease,background-color .16s ease,border-color .16s ease}
+
+  /* узкий экран: колонки складываются в одну, холст перестаёт быть жёсткой
+     высотой — на телефоне страница обязана просто читаться */
+  @media (max-width:1000px){
+    main{grid-template-columns:1fr;overflow-y:auto}
+    .col-left{overflow:visible}
+    .editors{min-height:320px}
+    textarea.editor{min-height:240px}
+    .rail{width:52px}
+    .rail-item span.lbl,.rail-logo,.rail-note,.rail-sec{display:none}
+    .rail-item{justify-content:center;padding:9px 0}
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:.001s!important;animation-delay:0s!important;
+      transition-duration:.001s!important}
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <!-- Разделы приложения — тонкой полосой слева, как в консоли и артефактах. -->
+  <nav class="rail">
+    <div class="rail-top">
+      <span class="rail-logo">WEDRA</span>
+      <span class="sp"></span>
+      <a class="rail-new" href="/editor/" title="Новый пайплайн" aria-label="Новый пайплайн">+</a>
+    </div>
+
+    <div class="rail-sec">Проекты</div>
+    <a class="rail-item" href="/#pipelines"><span class="ri-dot"></span><span class="lbl">Пайплайны</span><span class="ri-n" id="rail-pip-count"></span></a>
+    <a class="rail-item active" id="rail-plugins" href="/plugins/"><span class="ri-dot"></span><span class="lbl">Плагины</span><span class="ri-n" id="rail-plug-count"></span></a>
+    <a class="rail-item" href="/artifacts/"><span class="ri-dot"></span><span class="lbl">Артефакты</span></a>
+
+    <div class="rail-foot">
+      <!-- Панель настроек живёт в консоли (там её наполнение), а сами
+           настройки — общее состояние prefs.js: рельса ведёт на неё адресом. -->
+      <a class="rail-item" href="/?prefs"><span class="ri-ico">⚙</span><span class="lbl">Настройки</span></a>
+      <!-- Предупреждение здесь не украшение: правая часть с правкой кода
+           меняет доверие плагину, и человек должен знать это ДО правки. -->
+      <div class="rail-note">Любая правка меняет хэш содержимого — плагин перестаёт быть
+        доверенным, пока его не внесут в allow-list.</div>
+    </div>
+  </nav>
+
+  <div class="work">
+    <header class="topbar">
+      <nav class="modes">
+        <a href="/editor/">Редактор</a>
+        <a href="/#runs">Прогоны</a>
+        <a href="/artifacts/">Артефакты</a>
+        <a class="active" href="/plugins/">Плагины</a>
+        <!-- Каталог с галочками (магазин плагинов) живёт в консоли — отсюда он
+             и достижим, иначе страница закрыла бы его. -->
+        <a href="/#plugins" title="каталог плагинов в консоли">Каталог</a>
+        <span class="objname">редактор плагинов</span>
+      </nav>
+      <span class="sp"></span>
+    </header>
+
+    <main>
+      <!-- Левая колонка: список плагинов и создание нового -->
+      <div class="col-left">
+        <section class="card">
+          <h2>Плагины</h2>
+          <p class="hint">Выбери плагин, чтобы править его файлы. Точка в списке — есть
+            несохранённая правка: она переживёт переключение, но не переживёт закрытие
+            вкладки.</p>
+          <input type="search" id="q" placeholder="поиск плагина…"/>
+          <div class="pluglist" id="plist"></div>
+        </section>
+
+        <section class="card">
+          <h2>Создать плагин</h2>
+          <p class="hint">Имя — латиницей, строчными, цифры и подчёркивания. Из него
+            получится каталог плагина и его id в манифесте.</p>
+          <div class="field">
+            <label for="np-id">id</label>
+            <input type="text" id="np-id" placeholder="my_plugin" spellcheck="false" autocomplete="off"/>
+          </div>
+          <div class="row2">
+            <div class="field">
+              <label for="np-template">шаблон</label>
+              <!-- Шаблонов пока один: поле оставлено явным, чтобы добавление
+                   второго не ломало форму молча. -->
+              <select id="np-template"><option value="skeleton">skeleton</option></select>
+            </div>
+            <div class="field">
+              <label for="np-author">автор</label>
+              <input type="text" id="np-author" placeholder="необязательно" autocomplete="off"/>
+            </div>
+          </div>
+          <div class="field">
+            <label for="np-desc">описание</label>
+            <input type="text" id="np-desc" placeholder="необязательно" autocomplete="off"/>
+          </div>
+          <button id="np-create" class="primary">Создать</button>
+          <div id="np-err"></div>
+        </section>
+      </div>
+
+      <!-- Правая колонка: четыре файла плагина и команды над ними -->
+      <div class="col-right">
+        <section class="card grow">
+          <nav class="ptabs" id="ptabs">
+            <button data-f="plugin.yaml" class="active">Манифест <span class="fn">plugin.yaml</span><span class="dt" hidden></span></button>
+            <button data-f="main.py">Код <span class="fn">main.py</span><span class="dt" hidden></span></button>
+            <button data-f="plugin.test.yaml">Тесты <span class="fn">plugin.test.yaml</span><span class="dt" hidden></span></button>
+            <button data-f="requirements.lock">Зависимости <span class="fn">requirements.lock</span><span class="dt" hidden></span></button>
+          </nav>
+
+          <div id="meta">
+            <span class="path" id="m-path">плагин не выбран</span>
+            <span class="sp"></span>
+            <span class="tag any" id="m-miss" hidden></span>
+            <span class="tag" id="m-trust">—</span>
+            <span id="m-sha"></span>
+          </div>
+
+          <div class="editors">
+            <textarea class="editor" id="f-plugin.yaml" spellcheck="false" wrap="off" hidden></textarea>
+            <textarea class="editor" id="f-main.py" spellcheck="false" wrap="off" hidden></textarea>
+            <textarea class="editor" id="f-plugin.test.yaml" spellcheck="false" wrap="off" hidden></textarea>
+            <textarea class="editor" id="f-requirements.lock" spellcheck="false" wrap="off" hidden></textarea>
+          </div>
+
+          <div class="actions">
+            <button id="btn-validate" title="POST /api/plugins/&lt;id&gt;/validate — ничего не пишет">Только проверить</button>
+            <button id="btn-test" title="POST /api/plugins/&lt;id&gt;/test — зовёт Python, это медленно">Прогнать тесты</button>
+            <span class="sp"></span>
+            <button id="btn-save" class="primary" title="сначала validate, потом PUT /api/plugins/&lt;id&gt;/source">Сохранить и проверить</button>
+          </div>
+
+          <div id="status"></div>
+          <!-- Отчёт один на три команды: ошибки и предупреждения валидации,
+               падения тестов. Пустой блок не занимает место. -->
+          <div class="report" id="report" hidden></div>
+        </section>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="/prefs.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

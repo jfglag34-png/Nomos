@@ -329,12 +329,26 @@ func printCase(cr CaseResult, quiet bool) {
 	}
 }
 
-// RunPluginTests прогоняет plugin.test.yaml плагина. specPath == "" → <dir>/plugin.test.yaml.
 func hasExpectation(expect Expectation) bool {
 	return expect.Status != "" || expect.ExitCode != nil || len(expect.Output) > 0 || expect.Error != nil
 }
 
+// RunPluginTests прогоняет plugin.test.yaml плагина. specPath == "" → <dir>/plugin.test.yaml.
+//
+// Контекст здесь не принимается намеренно: CLI зовёт эту функцию из
+// синхронного кода, и «а если сети нет» его не касается. Точка входа с отменой —
+// RunPluginTestsCtx.
 func RunPluginTests(dir, specPath string, quiet bool) (passed, failed int, err error) {
+	return RunPluginTestsCtx(stdctx.Background(), dir, specPath, quiet)
+}
+
+// RunPluginTestsCtx — тот же прогон, но с контекстом вызывающего.
+//
+// Нужен HTTP-обработчику редактора плагинов: там прогон инициирован запросом
+// браузера, и без отмены закрытое соединение оставило бы тесты и поднятые ими
+// сервисы работать до собственного wall_timeout — то есть запрос отменён, а код
+// исполняется. Отмена по ctx проходит вниз до запуска процесса плагина.
+func RunPluginTestsCtx(ctx stdctx.Context, dir, specPath string, quiet bool) (passed, failed int, err error) {
 	m, err := NewEngine().LoadManifest(dir)
 	if err != nil {
 		return 0, 0, err
@@ -351,7 +365,7 @@ func RunPluginTests(dir, specPath string, quiet bool) (passed, failed int, err e
 	if allowErr != nil {
 		return 0, 0, allowErr
 	}
-	ctx := plugin.WithTrustPolicy(stdctx.Background(), plugin.TrustPolicy{Trusted: allow})
+	ctx = plugin.WithTrustPolicy(ctx, plugin.TrustPolicy{Trusted: allow})
 	if specPath == "" {
 		specPath = filepath.Join(dir, "plugin.test.yaml")
 	}

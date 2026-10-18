@@ -62,6 +62,14 @@ func TestGUIEmbeddedStatic(t *testing.T) {
 		{"/app.js", "api/store"},
 		{"/index.html", "plug-filter-store"},
 		{"/index.html", "plug-health"},
+		// v0.39: редактор плагинов — ОТДЕЛЬНАЯ страница, как артефакты: писать
+		// плагин и собирать пайплайн — разные инструменты, смешивать их в один
+		// экран уже пробовали, вёрстка поехала. Пины на ФУНКЦИИ, а не на прозу.
+		{"/plugins/", "Создать плагин"},
+		{"/plugins/", "id=\"btn-test\""},
+		{"/plugins/app.js", "async function save()"},
+		{"/plugins/app.js", "async function runTests()"},
+		{"/plugins/app.js", "async function createPlugin"},
 	}
 	for _, c := range cases {
 		resp, err := http.Get(ts.URL + c.path)
