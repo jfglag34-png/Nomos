@@ -143,6 +143,9 @@ func CreatePluginWith(dir string, opts CreateOptions) (string, error) {
 		"plugin.test.yaml": files.tests,
 		"README.md":        files.readme,
 	}
+	if files.lock != "" {
+		out["requirements.lock"] = files.lock
+	}
 	for name, content := range out {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 			return "", err

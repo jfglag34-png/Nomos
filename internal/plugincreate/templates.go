@@ -74,6 +74,7 @@ type pluginFiles struct {
 	mainPy   string
 	tests    string
 	readme   string
+	lock     string
 }
 
 const (
@@ -690,7 +691,7 @@ if __name__ == "__main__": sys.exit(main())
     input_raw: "{broken"
     expect: { exit_code: 2 }
 `
-	return pluginFiles{manifest: manifest, mainPy: mainPy, tests: tests, readme: generatedReadme(id, desc, "REST коннектор: url+method+body → status+body. Секрет API_KEY в env, MOCK=1 для тестов.", "")}, nil
+	return pluginFiles{manifest: manifest, mainPy: mainPy, tests: tests, readme: generatedReadme(id, desc, "REST коннектор: url+method+body → status+body. Секрет API_KEY в env, MOCK=1 для тестов.", ""), lock: "requests==2.32.0\n"}, nil
 }
 
 func buildSMTP(id string, opts CreateOptions) (pluginFiles, error) {
@@ -819,7 +820,7 @@ if __name__ == "__main__": sys.exit(main())
     input: { query: "   " }
     expect: { status: error, error: { code: empty_input } }
 `
-	return pluginFiles{manifest: manifest, mainPy: mainPy, tests: tests, readme: generatedReadme(id, desc, "Postgres: query+params → rows. PG_DSN в env, MOCK=1 для тестов.", "")}, nil
+	return pluginFiles{manifest: manifest, mainPy: mainPy, tests: tests, readme: generatedReadme(id, desc, "Postgres: query+params → rows. PG_DSN в env, MOCK=1 для тестов.", ""), lock: "psycopg2-binary==2.9.10\n"}, nil
 }
 
 func buildRedis(id string, opts CreateOptions) (pluginFiles, error) {
@@ -883,7 +884,7 @@ if __name__ == "__main__": sys.exit(main())
     input: { command: "GET", key: "" }
     expect: { status: error, error: { code: empty_input } }
 `
-	return pluginFiles{manifest: manifest, mainPy: mainPy, tests: tests, readme: generatedReadme(id, desc, "Redis: command/key/value → value. REDIS_URL в env, MOCK=1 для тестов.", "")}, nil
+	return pluginFiles{manifest: manifest, mainPy: mainPy, tests: tests, readme: generatedReadme(id, desc, "Redis: command/key/value → value. REDIS_URL в env, MOCK=1 для тестов.", ""), lock: "redis==5.0.0\n"}, nil
 }
 
 // compileCheck проверяет регулярку движком Go, чтобы опечатку поймали при
