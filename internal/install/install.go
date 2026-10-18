@@ -25,6 +25,7 @@ import (
 	"strings"
 
 	"github.com/wykserdex/wedra/internal/core"
+	"github.com/wykserdex/wedra/internal/plugin"
 	"github.com/wykserdex/wedra/internal/registry"
 )
 
@@ -47,6 +48,14 @@ type Request struct {
 	// LocalSource — локальный чеккаут того же репозитория (тот же флаг
 	// --local-source у `registry validate`). Пусто = не задан.
 	LocalSource string
+
+	// NoDeps — не ставить объявленные зависимости после установки.
+	//
+	// По умолчанию они ставятся: плагин с runtime.requires, который после
+	// установки не запускается, не установлен, а поставлен. Флаг нужен там,
+	// где окружение готовится заранее (CI, офлайн) или где pip не должен ходить
+	// в сеть.
+	NoDeps bool
 }
 
 // Result — чем закончилась установка. Заполняется даже при ошибке настолько,
@@ -59,7 +68,21 @@ type Result struct {
 	Source  string // откуда ставил (registry.Entry.Source)
 	Commit  string // зафиксированный commit из реестра; "" = пин не задан
 	Notes   []string
+
+	// Зависимости. Заполняются после публикации каталога, потому что ставить
+	// их имеет смысл только по фактическому содержимому на диске, а не по
+	// записи в реестре.
+	DepsInstalled []string // что ушло в pip (пусто = ставить было нечего)
+	DepsOutput    string   // вывод pip, обрезанный разумно
+	DepsError     string   // pip не отработал; плагин при этом остаётся установлен
 }
+
+// pipInstall — точка подмены для тестов.
+//
+// Переменная, а не прямой вызов: установка в тестах не должна ходить в сеть,
+// а падение PyPI или отсутствие интерпретатора читались бы как поломка
+// установки. Подменяет только deps_test.go.
+var pipInstall = plugin.PipInstall
 
 // ParseArgs — разбор аргументов `wedra plugin install <ref> [--registry=…]
 // [--dest=…]`. Чистая функция: ни сети, ни git, ни файлов.
@@ -76,6 +99,8 @@ func ParseArgs(args []string) (Request, error) {
 			req.RegistrySrc = a[len("--registry="):]
 		case strings.HasPrefix(a, "--dest="):
 			req.Dest = a[len("--dest="):]
+		case a == "--no-deps":
+			req.NoDeps = true
 		case !strings.HasPrefix(a, "-"):
 			ref = a
 		}
@@ -143,7 +168,58 @@ func Run(w io.Writer, req Request) (Result, error) {
 	}
 	res.Dir = destDir
 	fmt.Fprintf(out, "  + %s (%s) → %s\n", req.Name, version, destDir)
+	if !req.NoDeps {
+		installDeps(out, destDir, &res)
+	}
 	return res, nil
+}
+
+// depsOutputLimit — сколько вывода pip уходит в Result и в лог.
+//
+// Установка пакета может напечатать много строк, но человеку нужно знать, что
+// поставилось и что нет. Журнал обрезается с хвоста: вердикт pip («Successfully
+// installed» или «ERROR») стоит в конце, а начало — это путь к кэшу и
+// разрешение зависимостей.
+const depsOutputLimit = 8 << 10
+
+// installDeps ставит объявленные зависимости уже установленного плагина.
+//
+// Почему здесь, а не в CLI и не по кнопке: пока это было двумя отдельными
+// действиями, «поставил плагин» и «плагин работает» оставались разными
+// событиями, и второе надо было ещё вспомнить. Автоустановка не делает работу
+// за человека, а закрывает шаг, который человек всё равно обязан сделать.
+//
+// Отказ pip НЕ откатывает каталог. Каталог уже опубликован и прошёл
+// ValidatePluginDir; отсутствие зависимостей — свойство окружения, а не
+// неправильность установки, и откат уничтожил бы рабочую копию. Но отказ
+// обязательно попадает в Result.DepsError и в лог: плагин, который «установился,
+// но не запускается», без слов об этом — худший из вариантов.
+func installDeps(out io.Writer, dir string, res *Result) {
+	m, err := plugin.NewEngine().LoadManifest(dir)
+	if err != nil {
+		// Каталог только что прошёл ValidatePluginDir, так что это почти
+		// невозможно. Но «почти» — не «никогда», и молчать здесь нельзя.
+		res.DepsError = "не прочитан манифест установленного плагина: " + err.Error()
+		fmt.Fprintf(out, "  ! зависимости: %s\n", res.DepsError)
+		return
+	}
+	specs := append([]string(nil), m.Runtime.Requires...)
+	if len(specs) == 0 {
+		return
+	}
+	fmt.Fprintf(out, "  · ставлю зависимости: %s\n", strings.Join(specs, " "))
+	output, err := pipInstall(specs)
+	if len(output) > depsOutputLimit {
+		output = output[len(output)-depsOutputLimit:]
+	}
+	res.DepsOutput = output
+	if err != nil {
+		res.DepsError = err.Error()
+		fmt.Fprintf(out, "  ! зависимости не поставились: %s\n", err)
+		return
+	}
+	res.DepsInstalled = specs
+	fmt.Fprintf(out, "  ✓ зависимости поставлены\n")
 }
 
 // stageAndCommit — публикация каталога плагина. Порядок прежний и

@@ -1,0 +1,35 @@
+id: csv_column
+version: 0.1.0
+platform_api: "^0.1"
+description: "Достаёт колонку из rows csv_loader в плоский массив строк — мост между CSV и батч-плагинами (batch_email_triage, phone_normalizer)"
+author: "community · пресет email_base_audit (v0.35)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+
+# rows приходят от csv_loader (массив объектов при has_header: true).
+# column — имя колонки, которую надо вытащить.
+input:
+  rows:
+    type: array
+  column:
+    type: string
+    format: text
+
+# values — только непустые значения в исходном порядке.
+# missing — сколько строк без значения (пустая ячейка или нет ключа).
+# duplicates — сколько повторов сверх первого вхождения.
+# unique — сколько различных значений (регистр не важен).
+output:
+  values: { type: array }
+  count: { type: number }
+  missing: { type: number }
+  duplicates: { type: number }
+  unique: { type: number }
+
+permissions:
+  network: []
+  filesystem: none
+  secrets: []
