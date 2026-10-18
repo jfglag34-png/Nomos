@@ -165,8 +165,12 @@ func Run(pluginsDir string) Report {
 			p.Install = installCommand(p.MissingRequires)
 		}
 
-		// Донор: «pip install X» из описания манифеста.
-		if donor, ok := donorFromDescription(m.Description); ok {
+		// Донор: «pip install X» из описания манифеста, fallback — README/.py.
+		donor, donorOk := donorFromDescription(m.Description)
+		if !donorOk {
+			donor, donorOk = donorFromFiles(m.Dir)
+		}
+		if donorOk {
 			p.Donor = donor
 			p.DonorCandidates = donorCandidates(donor, m.Dir)
 			foundPath, foundName := donorInPath(p.DonorCandidates)

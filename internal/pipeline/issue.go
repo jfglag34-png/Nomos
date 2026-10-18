@@ -67,7 +67,7 @@ func FilterCode(issues []Issue, code string) []Issue {
 // Коды ошибок валидации — публичный контракт (protocol/v0.2/ERRORS.md).
 // Тексты Message менять можно, коды — нельзя.
 const (
-	E_FORMAT_VERSION          = "E_FORMAT_VERSION"
+	E_FORMAT_VERSION        = "E_FORMAT_VERSION" // warn for future versions, kept E_ for compat
 	E_CYCLE                   = "E_CYCLE"
 	E_FOREACH_PATH            = "E_FOREACH_PATH"
 	E_FOREACH_NOT_FOUND       = "E_FOREACH_NOT_FOUND"

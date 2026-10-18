@@ -44,17 +44,34 @@ func (s *Server) handleTrust(w http.ResponseWriter, r *http.Request) {
 		// «оператор решил, что доверяет, а на деле нет».
 		"cwd_not_read": true,
 	}
+	// Windows UX: AppContainer нет, доверять можно только через wedra-trust.yaml
+	if isWindows() {
+		out["windows_note"] = "На Windows изолятор (bwrap) недоступен — внешний код запускается только если его хэш в wedra-trust.yaml. Положите файл рядом с wedra.exe или задайте --trust-config."
+		out["example_path"] = "%ProgramData%\\wedra\\wedra-trust.yaml или C:\\wedra\\wedra-trust.yaml"
+	}
 	if path == "" {
 		out["configured"] = false
-		out["how_to_configure"] = "задайте --trust-config=<путь> или переменную WEDRA_TRUST_CONFIG"
+		how := "задайте --trust-config=<путь> или переменную WEDRA_TRUST_CONFIG"
+		if isWindows() {
+			how += " (пример: --trust-config=\"C:\\wedra\\wedra-trust.yaml\")"
+		}
+		out["how_to_configure"] = how
 	} else {
 		out["configured"] = true
 		if _, err := os.Stat(path); err == nil {
 			out["exists"] = true
 		} else {
 			out["exists"] = false
-			out["how_to_create"] = "создайте файл: " + path
+			msg := "создайте файл: " + path
+			if isWindows() {
+				msg += " (запустите PowerShell от админа: New-Item -Path \"" + path + "\" -ItemType File)"
+			}
+			out["how_to_create"] = msg
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+func isWindows() bool {
+	return strings.Contains(strings.ToLower(os.Getenv("OS")), "windows") || strings.HasSuffix(strings.ToLower(os.Getenv("COMSPEC")), "cmd.exe") || strings.Contains(strings.ToLower(os.Getenv("ProgramData")), "programdata")
 }

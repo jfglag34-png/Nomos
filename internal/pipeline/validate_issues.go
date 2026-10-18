@@ -89,7 +89,8 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 	var v collector
 	if pf.FormatVersion != "0.1" && pf.FormatVersion != "0.2" {
 		if pf.FormatVersion != "" {
-			v.err(E_FORMAT_VERSION, "", "", "format_version", "допустимые значения: \"0.1\", \"0.2\"", &Fix{Op: "set", Target: "format_version", Candidates: []string{"0.1", "0.2"}}, "format_version %q не из списка поддерживаемых: 0.1, 0.2", pf.FormatVersion)
+			// forward compatibility: unknown future version is warn, not error — ран с 0.3 должен пройти валидацию с предупреждением
+			v.warn(E_FORMAT_VERSION, "", "", "format_version", "допустимые значения: \"0.1\", \"0.2\" (будущие версии — предупреждение)", &Fix{Op: "set", Target: "format_version", Candidates: []string{"0.1", "0.2"}}, "format_version %q не из списка поддерживаемых: 0.1, 0.2 (будущая версия — предупреждение)", pf.FormatVersion)
 		} else {
 			v.warn(W_FORMAT_VERSION_MISSING, "", "", "format_version", "укажите format_version: \"0.2\"", &Fix{Op: "set", Target: "format_version", Candidates: []string{"0.2"}}, "format_version %q не из списка поддерживаемых: 0.1, 0.2", pf.FormatVersion)
 		}

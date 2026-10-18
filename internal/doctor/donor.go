@@ -234,6 +234,75 @@ func whichLiterals(dir string) []string {
 	return out
 }
 
+// donorFromFiles — пробует достать донора из README/* и .py файлов плагина,
+// когда в описании манифеста его нет. Ищет тот же `pip install` паттерн,
+// но в более широком наборе файлов. Это закрывает 13 плагинов где донор
+// известен лишь из README (например community/webanalyze, community/holehe и т.д.)
+func donorFromFiles(dir string) (string, bool) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", false
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() {
+			if name == "__pycache__" || name == ".git" {
+				continue
+			}
+			if donor, ok := donorFromFiles(filepath.Join(dir, name)); ok {
+				return donor, true
+			}
+			continue
+		}
+		upper := strings.ToUpper(name)
+		isReadme := strings.HasPrefix(upper, "README")
+		isPy := strings.HasSuffix(name, ".py")
+		if !isReadme && !isPy {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			continue
+		}
+		if donor, ok := donorFromDescription(string(raw)); ok {
+			return donor, true
+		}
+		// Fallback для README где donorFromDescription может быть слишком строгим
+		// (например обрезанный хвост) — пробуем напрямую, но с тем же url-фильтром
+		if m := pipInstallRe.FindStringSubmatch(string(raw)); len(m) >= 2 {
+			candidate := strings.TrimSpace(m[1])
+			candidate = strings.Trim(candidate, "\"'`()[]{}<>` ")
+			if urlInstallTargetRe.MatchString(candidate) {
+				continue
+			}
+			if idx := strings.IndexAny(candidate, ",:;"); idx >= 0 {
+				candidate = candidate[:idx]
+			}
+			candidate = strings.TrimSpace(strings.TrimSuffix(candidate, "."))
+			if strings.Contains(candidate, "==") {
+				if name, ok := packageNameFromPin(candidate); ok {
+					return name, true
+				}
+				continue
+			}
+			if validPackageName(candidate) && !strings.HasPrefix(strings.ToLower(candidate), "-") {
+				low := strings.ToLower(candidate)
+				isVCS := false
+				for _, p := range vcsPrefixes {
+					if strings.HasPrefix(low, p) {
+						isVCS = true
+						break
+					}
+				}
+				if !isVCS && !strings.ContainsAny(candidate, "/\\") {
+					return candidate, true
+				}
+			}
+		}
+	}
+	return "", false
+}
+//
 // donorInPath — есть ли такой донор в PATH.
 //
 // exec.LookPath, а не обход PATH вручную: он учитывает PATHEXT на Windows, то

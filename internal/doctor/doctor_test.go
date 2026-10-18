@@ -884,16 +884,20 @@ func TestDoctorRealRepoDonorNamesHaveNoGarbage(t *testing.T) {
 	t.Logf("проверено имён пакетов: %d из %d манифестов", checked, len(manifests))
 }
 
-// Оговорка о границах проверки: плагин, у которого донора нет в описании, но
-// «pip install» есть в README, обязан попасть в unverified_donors. Без этого
-// он молча числится готовым, а это враньё.
+// Оговорка о границах проверки: плагин, у которого донора нет ни в описании,
+// ни в README, обязан попасть в unverified_donors. Плагин с `pip install`
+// в README теперь тоже проверяется (fallback donorFromFiles), поэтому
+// readmeonly НЕ в списке, а really_unverified — да.
 func TestDoctorListsUnverifiedDonors(t *testing.T) {
 	root := doctorFixture(t, map[string]string{
-		"checked/plugin.yaml":    doctorManifestText("checked", "Ставится: pip install some-tool", nil),
-		"checked/main.py":        "import json\nprint('{}')\n",
-		"readmeonly/plugin.yaml": doctorManifestText("readmeonly", "Плагин без упоминания донора", nil),
-		"readmeonly/main.py":     "import json\nprint('{}')\n",
-		"readmeonly/README.md":   "Установка внешнего инструмента: `pip install other-tool`.\n",
+		"checked/plugin.yaml":         doctorManifestText("checked", "Ставится: pip install some-tool", nil),
+		"checked/main.py":             "import json\nprint('{}')\n",
+		"readmeonly/plugin.yaml":      doctorManifestText("readmeonly", "Плагин без упоминания донора", nil),
+		"readmeonly/main.py":          "import json\nprint('{}')\n",
+		"readmeonly/README.md":        "Установка внешнего инструмента: `pip install other-tool`.\n",
+		"really_unverified/plugin.yaml": doctorManifestText("really_unverified", "Плагин без упоминания донора", nil),
+		"really_unverified/main.py":   "import json\nprint('{}')\n",
+		"really_unverified/README.md": "Установка: pip install https://example.com/pkg.tar.gz\n",
 	})
 	rep := Run(root)
 
@@ -901,8 +905,11 @@ func TestDoctorListsUnverifiedDonors(t *testing.T) {
 	for _, id := range rep.UnverifiedDonors {
 		found[id] = true
 	}
-	if found["readmeonly"] != true {
-		t.Errorf("readmeonly должен быть в unverified_donors, список: %v", rep.UnverifiedDonors)
+	if found["readmeonly"] == true {
+		t.Errorf("readmeonly теперь проверяется через README, не должен быть в unverified_donors: %v", rep.UnverifiedDonors)
+	}
+	if found["really_unverified"] != true {
+		t.Errorf("really_unverified должен быть в unverified_donors (url-установка не парсится): %v", rep.UnverifiedDonors)
 	}
 	if found["checked"] {
 		t.Errorf("checked донора проверил — в оговорке ему не место: %v", rep.UnverifiedDonors)
@@ -910,12 +917,15 @@ func TestDoctorListsUnverifiedDonors(t *testing.T) {
 }
 
 // Оговорка обязана быть и в человеческом выводе: поле в --json не мешает
-// человеку, который смотрит отчёт глазами.
+// человеку, который смотрит отчёт глазами. С fallback на README оговорка
+// появляется только если есть плагин без pip install нигде.
 func TestDoctorHumanOutputHasHonestyNote(t *testing.T) {
 	root := doctorFixture(t, map[string]string{
-		"readmeonly/plugin.yaml": doctorManifestText("readmeonly", "Плагин без упоминания донора", nil),
-		"readmeonly/main.py":     "import json\nprint('{}')\n",
-		"readmeonly/README.md":   "Установка: `pip install other-tool`.\n",
+		"checked/plugin.yaml":       doctorManifestText("checked", "Ставится: pip install some-tool", nil),
+		"checked/main.py":           "import json\nprint('{}')\n",
+		"unverified/plugin.yaml":    doctorManifestText("unverified", "Плагин без упоминания донора", nil),
+		"unverified/main.py":        "import json\nprint('{}')\n",
+		"unverified/README.md":      "Установка: pip install https://example.com/pkg.tar.gz\n",
 	})
 	rep := Run(root)
 	if len(rep.UnverifiedDonors) == 0 {
@@ -927,7 +937,7 @@ func TestDoctorHumanOutputHasHonestyNote(t *testing.T) {
 	if !strings.Contains(text, "Оговорка") || !strings.Contains(text, "НЕ проверено") {
 		t.Errorf("в человеческом выводе нет оговорки о границах проверки:\n%s", text)
 	}
-	if !strings.Contains(text, "readmeonly") {
+	if !strings.Contains(text, "unverified") {
 		t.Errorf("оговорка не перечисляет непроверенные плагины:\n%s", text)
 	}
 }
