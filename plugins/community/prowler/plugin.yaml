@@ -15,7 +15,7 @@ author: "community · wedra showcase (cloud audit)"
 runtime:
   type: python
   entry: main.py
-  requires: [prowler==5.45.0]  # донор объявлен: ставится вместе с плагином, отдельно не нужен
+  requires: []          # только stdlib; пакет prowler — отдельно
 
 input:
   provider:

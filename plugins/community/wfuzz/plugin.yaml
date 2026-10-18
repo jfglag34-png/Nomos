@@ -11,7 +11,7 @@ author: "community · wedra showcase (OSINT)"
 runtime:
   type: python
   entry: main.py
-  requires: [wfuzz==3.1.0]  # донор объявлен: ставится вместе с плагином, отдельно не нужен
+  requires: []          # только stdlib; пакет wfuzz — отдельно (pip install wfuzz)
 
 input:
   url:

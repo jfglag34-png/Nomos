@@ -186,7 +186,7 @@ func TestRunNoDepsSkipsPip(t *testing.T) {
 	if len(*got) != 0 {
 		t.Errorf("pip вызван при NoDeps: %v", *got)
 	}
-	if res.DepsInstalled != nil && len(res.DepsInstalled) > 0 {
+	if len(res.DepsInstalled) > 0 {
 		t.Errorf("DepsInstalled=%v при NoDeps", res.DepsInstalled)
 	}
 }
