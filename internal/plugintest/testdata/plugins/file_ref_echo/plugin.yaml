@@ -1,0 +1,22 @@
+id: file_ref_echo
+version: 0.1.0
+platform_api: "^0.1"
+description: "Фикстура: эхо относительного file_ref-пути (тест предупреждений о cwd плагина)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+
+input:
+  path:
+    type: string
+    format: file_ref
+
+output:
+  ok: { type: boolean }
+
+permissions:
+  network: []
+  filesystem: read
+  secrets: []

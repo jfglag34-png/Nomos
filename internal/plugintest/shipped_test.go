@@ -11,7 +11,7 @@
 //
 //	Запуск отдельно, со своим бюджетом:
 //	  go test -tags integration -run TestPluginTestShippedPlugins ./internal/core
-package core
+package plugintest
 
 import (
 	"os"

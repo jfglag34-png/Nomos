@@ -1,0 +1,22 @@
+# Фикстура для Go-тестов tool plugin test.
+tests:
+  - name: bad → доменная ошибка, не retryable
+    input: { value: "bad" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_value, retryable: false }
+
+  - name: flaky → retryable (имитация rate-limit)
+    input: { value: "flaky" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: rate_limit, retryable: true }
+
+  - name: обычное значение → ok
+    input: { value: "fine" }
+    expect:
+      status: ok
+      output:
+        result: "fine"

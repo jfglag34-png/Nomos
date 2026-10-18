@@ -1,0 +1,17 @@
+id: echo_ok
+version: 0.1.0
+platform_api: "^0.1"
+
+runtime:
+  type: python
+  entry: main.py
+
+input:
+  value: { from: input.value, type: string }
+
+output:
+  value: { type: string }
+
+permissions:
+  filesystem: none
+  secrets: []

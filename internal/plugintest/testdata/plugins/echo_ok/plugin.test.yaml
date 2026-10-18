@@ -1,0 +1,17 @@
+# Фикстура для Go-тестов tool plugin test.
+# NB: не эхайте число/массив — манифест обещает string, дрейф типа ловится
+# plugin test автоматически (негативный пример: ../type_drifter/).
+tests:
+  - name: эхо возвращает вход
+    input: { value: "hi" }
+    expect:
+      status: ok
+      output:
+        value: "hi"
+
+  - name: пустая строка тоже ок (это не ошибка домена)
+    input: { value: "" }
+    expect:
+      status: ok
+      output:
+        value: ""

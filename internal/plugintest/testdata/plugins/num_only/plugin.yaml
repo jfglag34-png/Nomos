@@ -1,0 +1,17 @@
+id: num_only
+version: 0.1.0
+platform_api: "^0.1"
+
+runtime:
+  type: python
+  entry: main.py
+
+input:
+  n: { from: input.n, type: number }
+
+output:
+  n: { type: number }
+
+permissions:
+  filesystem: none
+  secrets: []

@@ -1,0 +1,7 @@
+tests:
+  - name: число проходит
+    input: { n: 5 }
+    expect:
+      status: ok
+      output:
+        n: 5

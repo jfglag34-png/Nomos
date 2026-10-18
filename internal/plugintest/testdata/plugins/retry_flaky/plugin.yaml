@@ -1,0 +1,21 @@
+id: retry_flaky
+version: 0.1.0
+platform_api: "^0.1"
+
+runtime:
+  type: python
+  entry: main.py
+
+input: {}
+
+output:
+  result: { type: string }
+
+permissions:
+  # Счётчик попыток лежит ВНЕ каталога плагина (RETRY_COUNTER задаёт тест).
+  # Писать в собственный каталог нельзя: доверенность определяется хэшем
+  # содержимого, и первая же запись отозвала бы доверие у только что
+  # отработавшего плагина. Переменная объявлена в secrets потому, что ядро
+  # передаёт плагину только задекларированное окружение.
+  filesystem: workspace
+  secrets: [ "RETRY_COUNTER" ]

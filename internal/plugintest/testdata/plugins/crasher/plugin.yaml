@@ -1,0 +1,16 @@
+id: crasher
+version: 0.1.0
+platform_api: "^0.1"
+
+runtime:
+  type: python
+  entry: main.py
+
+input: {}
+
+output:
+  result: { type: string }
+
+permissions:
+  filesystem: none
+  secrets: []

@@ -1,4 +1,4 @@
-package core
+package plugintest
 
 // Тесты декларативной подготовки окружения (services в plugin.test.yaml).
 //

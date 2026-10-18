@@ -1,0 +1,20 @@
+id: net_demo
+version: 0.1.0
+platform_api: "^0.1"
+
+runtime:
+  type: python
+  entry: main.py
+
+input:
+  value: { from: input.value, type: string }
+
+output:
+  value: { type: string }
+
+permissions:
+  network:
+    - host: api.example.com
+      port: 443
+  filesystem: none
+  secrets: [NET_DEMO_KEY]

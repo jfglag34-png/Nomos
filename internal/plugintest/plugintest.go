@@ -1,4 +1,4 @@
-package core
+package plugintest
 
 // tool plugin test <dir> — контракт-тесты для авторов плагинов (ТЗ v2 §6.1).
 // Плагин гоняется на фикстурах из plugin.test.yaml через ТОТ ЖЕ механизм
@@ -17,9 +17,36 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wykserdex/wedra/internal/common"
+	"github.com/wykserdex/wedra/internal/pipeline"
 	"github.com/wykserdex/wedra/internal/plugin"
 	"gopkg.in/yaml.v3"
 )
+
+// локальные алиасы — ранее из internal/core/types.go
+type Manifest = pipeline.Manifest
+type Duration = pipeline.Duration
+
+var NewEngine = plugin.NewEngine
+
+func truncate(s string, n int) string { return common.Truncate(s, n) }
+func kindOf(v interface{}) string {
+	switch v.(type) {
+	case bool:
+		return "boolean"
+	case float64:
+		return "number"
+	case string:
+		return "string"
+	case []interface{}:
+		return "array"
+	case map[string]interface{}:
+		return "object"
+	case nil:
+		return "null"
+	}
+	return "unknown"
+}
 
 // ── Схема plugin.test.yaml ──────────────────────────────────────────────
 
@@ -249,7 +276,7 @@ func runCase(ctx stdctx.Context, m *Manifest, tc PluginTestCase) CaseResult {
 	// clean сохраняем: по нему судим, что реально уходит наружу (матчер absent).
 	var enforced map[string]interface{}
 	if res.OK() {
-		if clean, dropped, cvErr := EnforceOutput(m, res.Output); cvErr != nil {
+		if clean, dropped, cvErr := plugin.EnforceOutput(m, res.Output); cvErr != nil {
 			fail("контракт: %v", cvErr)
 		} else {
 			enforced = clean

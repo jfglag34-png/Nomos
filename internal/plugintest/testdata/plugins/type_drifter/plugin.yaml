@@ -1,0 +1,16 @@
+id: type_drifter
+version: 0.1.0
+platform_api: "^0.1"
+
+runtime:
+  type: python
+  entry: main.py
+
+input: {}
+
+output:
+  value: { type: string }   # а плагин вернёт число — дрейф типа от манифеста
+
+permissions:
+  filesystem: none
+  secrets: []
