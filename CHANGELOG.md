@@ -2,7 +2,15 @@
 
 ## Unreleased
 
-Здесь ничего нет.
+### Аудит 1-2-3 — вынос легаси из core и правки doctor/trust/format_version (2026-10-18)
+
+- **doctor 13→0**: `internal/doctor/donor.go: donorFromFiles()` сканирует `README*`+`*.py` когда `description` пуст; `pipInstallRe` + фильтры `urlInstallTargetRe`/`vcsPrefixes`/`validPackageName` чтобы `pip install https://...` не стало донором `https`. `doctor.go:160` fallback `donorFromDescription → donorFromFiles`. 13 плагинов (community/webanalyze и др.) теперь `verified`, `unverified 13→0`; тесты `doctor_test.go:885,918` обновлены.
+- **network**: остаётся `any_host` only (fail-closed), без новых декларативных хостов — `execution/runner.go` `network_not_enforceable`.
+- **format_version**: `pipeline/validate_issues.go:93` `0.3+` теперь `warn` (совместимость), не `error`.
+- **trust Windows**: `api/trust.go` `windows_note`+`example_path`+`how_to_create` с PowerShell подсказкой.
+- **plugincreate** 2.5k → `internal/plugincreate/` (`plugincreate.go` 463 + `templates.go` 610 + `doc.go`) + `core/plugincreate_shim.go` (alias `CreateOptions` + `TemplateNames`/`PyLiteralForTest`); тесты интеграционные остались в `core`.
+- **conformance** 2.1k → `internal/conformance/` (`conformance.go` 439 + `doc.go`) + `core/conformance_shim.go` (`Manifest/NewEngine` локально, без цикла `core/types.go`).
+- **plugintest** 1.7k → `internal/plugintest/` (`plugintest.go` 437 + `service.go` 284 + `doc.go`, алиасы `Manifest/Duration/NewEngine`, `truncate=common.Truncate`/`kindOf` локально, `EnforceOutput→plugin.EnforceOutput`) + `core/plugintest_shim.go`; тесты и `testdata` продублированы.
 
 ## 0.35.0 — в работе
 
