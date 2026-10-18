@@ -444,7 +444,7 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/prowler
     version: v0.33c
-    commit: 9ed26c3f5cb5759ee9e92f74eca86efba2fb98c0
+    commit: 97f56a9ab762cd1b3e14cf637bef2b60b46a1b89
     description: "Prowler (prowler-cloud) — аудит соответствия и безопасности облака, отчёт OCSF. pip install prowler."
 
   pyelftools:
@@ -577,7 +577,7 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/wfuzz
     version: v0.33c
-    commit: 9ed26c3f5cb5759ee9e92f74eca86efba2fb98c0
+    commit: 97f56a9ab762cd1b3e14cf637bef2b60b46a1b89
     description: "wfuzz (xmendez) — фаззинг параметров по словарю, JSON-отчёт. pip install wfuzz."
 
   xsstrike:
