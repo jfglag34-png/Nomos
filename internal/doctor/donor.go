@@ -271,7 +271,7 @@ func donorFromFiles(dir string) (string, bool) {
 		// (например обрезанный хвост) — пробуем напрямую, но с тем же url-фильтром
 		if m := pipInstallRe.FindStringSubmatch(string(raw)); len(m) >= 2 {
 			candidate := strings.TrimSpace(m[1])
-			candidate = strings.Trim(candidate, "\"'`()[]{}<>` ")
+			candidate = strings.Trim(candidate, "\"'`()[]{}<> ")
 			if urlInstallTargetRe.MatchString(candidate) {
 				continue
 			}
