@@ -39,6 +39,20 @@ type ImportPlan struct {
 	ModuleImportPath string
 	Warnings         []string
 	Blockers         []string
+
+	// Ниже — сведения, нужные генератору, а не разбору. Они переносятся из
+	// Project дословно: разбор метаданных тут не дублируется, генератор
+	// получает ровно то, что автор проекта написал, и решает сам, что из
+	// этого годится в манифест.
+
+	// Description — описание проекта из его метаданных. Это описание
+	// ДОНОРА, а не плагина: класть его в plugin.yaml можно только с
+	// пометкой, что плагин на этом не работает (см. Generate).
+	Description string
+	// DescriptionFile — путь к README донора, если он найден. В манифест он не
+	// идёт (схема не имеет такого поля), но генератор ссылается на него в
+	// README плагина: человеку читать именно там, что делает донор.
+	DescriptionFile string
 }
 
 // pluginIDRe — правило id плагина из internal/core/plugincreate.go
@@ -86,6 +100,8 @@ func Plan(p *Project) ImportPlan {
 
 	plan.Warnings = append(plan.Warnings, p.notes...)
 	plan.PluginID = pluginIDFor(p)
+	plan.Description = p.Description
+	plan.DescriptionFile = p.DescriptionFile
 
 	for _, raw := range selectedRequirements(p, &plan) {
 		req, err := ParseRequirement(raw)
