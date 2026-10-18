@@ -295,7 +295,7 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 			// синтетический манифест как в plugin/registry.go
 			m := &Manifest{
 				ID: "core/text_stats",
-				Input: map[string]Port{"text": {Type: "string", Format: "text"}},
+				Input: map[string]Port{"text": {From: "input.text", Type: "string", Format: "text", Optional: true}},
 				Output: map[string]Port{
 					"lines":        {Type: "number"},
 					"words":        {Type: "number"},

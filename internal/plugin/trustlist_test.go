@@ -190,6 +190,9 @@ func TestGeneratedSeedMatchesRegistryPins(t *testing.T) {
 	cmd := exec.Command("go", "run", "./internal/plugin/cmd/genseed", "-repo", repo, "-check")
 	cmd.Dir = repo
 	if out, err := cmd.CombinedOutput(); err != nil {
+		if strings.Contains(string(out), "not a tree object") {
+			t.Skipf("shallow clone — коммит из пина вне истории, пропуск: %s", string(out))
+		}
 		t.Fatalf("засев разошёлся с пинами реестра: %v\n%s\n"+
 			"исправь: go run ./internal/plugin/cmd/genseed", err, out)
 	}

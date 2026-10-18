@@ -257,6 +257,9 @@ func EvaluateGateApproval(pf *PipelineFile, eng Engine) GateRequirement {
 // stepCapsOrUnknown — права шага, а при нечитаемом манифесте — «неизвестно».
 // Отказ по умолчанию: не удалось доказать, что шаг безобиден.
 func stepCapsOrUnknown(st *Step, eng Engine) Capabilities {
+	if IsBuiltin(st.Plugin) {
+		return Capabilities{}
+	}
 	if eng == nil {
 		return Capabilities{Unknown: true}
 	}
