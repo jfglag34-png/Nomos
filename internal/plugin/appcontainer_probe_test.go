@@ -14,6 +14,7 @@
 package plugin
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -171,6 +172,48 @@ func acGrant(path string, sid *windows.SID, perms windows.ACCESS_MASK) error {
 	)
 }
 
+// acGrantAdditive добавляет выдачу контейнеру, НЕ трогая уже существующий DCL.
+//
+// Отдельная функция не для красоты: acGrant собирает ACL с нуля и ставит его
+// PROTECTED. На каталоге пробы это правильно, но на настоящей установке
+// интерпретатора такой вызов ЗАМЕНИЛ бы текущий ACL и выкинул записи, на
+// которых держится её работоспособность. Здесь текущий DCL читается, запись
+// контейнера сливается в него, а PROTECTED не используется — то есть
+// наследование продолжает действовать и старые записи остаются на месте.
+//
+// Именно этим объясняется код возврата 5 у контейнерного ребёнка: процесс
+// создаётся, но не может загрузить сам интерпретатор, на каталог которого
+// выдачи не было.
+func acGrantAdditive(path string, sid *windows.SID, perms windows.ACCESS_MASK) error {
+	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
+	if err != nil {
+		return fmt.Errorf("чтение дескриптора(%s): %w", path, err)
+	}
+	old, _, err := sd.DACL()
+	if err != nil {
+		return fmt.Errorf("чтение DCL(%s): %w", path, err)
+	}
+	entry := windows.EXPLICIT_ACCESS{
+		AccessPermissions: perms,
+		AccessMode:        windows.GRANT_ACCESS,
+		Inheritance:       windows.SUB_CONTAINERS_AND_OBJECTS_INHERIT,
+		Trustee: windows.TRUSTEE{
+			TrusteeForm:  windows.TRUSTEE_IS_SID,
+			TrusteeType:  windows.TRUSTEE_IS_USER,
+			TrusteeValue: windows.TrusteeValueFromSID(sid),
+		},
+	}
+	merged, err := windows.ACLFromEntries([]windows.EXPLICIT_ACCESS{entry}, old)
+	if err != nil {
+		return fmt.Errorf("слияние ACL(%s): %w", path, err)
+	}
+	// Здесь намеренно без PROTECTED_DACL_SECURITY_INFORMATION: он запретил бы
+	// наследование и привёл к обратному — подмене DCL.
+	return windows.SetNamedSecurityInfo(
+		path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION, nil, nil, merged, nil,
+	)
+}
+
 // acRunInContainer запускает cmdline в контейнере и ждёт завершения.
 // Результат процесса читается файлом в scratch: это сознательно проще, чем
 // прокидывать каналы через STARTUPINFOEX, и для замера изоляции достаточно.
@@ -206,11 +249,38 @@ func acRunInContainer(t *testing.T, sid *windows.SID, cmdline, cwd string, env [
 	}
 	fmt.Printf("[probe] sizeof(STARTUPINFOEX)=%d (ожидается 112), lpAttributeList=0x%x\n", unsafe.Sizeof(acStartupInfoEx{}), si.lpAttributeList)
 
-	// Окружение и cwd в этом прогоне НЕ передаются: их наличие добавляет к
-	// вызову ещё две причины для INVALID_PARAMETER, и без их исключения
-	// непонятно, что именно отвергнуто.
-	_ = env
-	_ = cwd
+	// Окружение и cwd возвращены: пока вызов отвергался, их приходилось
+	// отбрасывать, чтобы понять, что именно не так. Блокер снят — они нужны,
+	// проба читает результат через переменные окружения.
+	envPtr, err := buildEnvBlock(env)
+	if err != nil {
+		return err
+	}
+	cwdPtr, err := windows.UTF16PtrFromString(cwd)
+	if err != nil {
+		return err
+	}
+
+	// Вывод ребёнка уводим в файл. Без этого код возврата нечем объяснить:
+	// traceback контейнерного Python уходит в никуда, и замер превращается в
+	// «какое-то число, не пойму».
+	sa := windows.SecurityAttributes{
+		Length:        uint32(unsafe.Sizeof(windows.SecurityAttributes{})),
+		InheritHandle: 1,
+	}
+	childOut, err := windows.CreateFile(
+		windows.StringToUTF16Ptr(filepath.Join(cwd, "child.out")),
+		windows.GENERIC_WRITE,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE,
+		&sa, windows.CREATE_ALWAYS, windows.FILE_ATTRIBUTE_NORMAL, 0,
+	)
+	if err != nil {
+		return fmt.Errorf("файл вывода ребёнка: %w", err)
+	}
+	defer windows.CloseHandle(childOut)
+	si.hStdOutput = childOut
+	si.hStdErr = childOut
+	si.dwFlags = windows.STARTF_USESTDHANDLES
 
 	cmdBuf, err := windows.UTF16FromString(cmdline)
 	if err != nil {
@@ -221,10 +291,10 @@ func acRunInContainer(t *testing.T, sid *windows.SID, cmdline, cwd string, env [
 	r, _, err := procCreateProcessW.Call(
 		0, uintptr(unsafe.Pointer(&cmdBuf[0])),
 		0, 0,
-		0,
+		1, // bInheritHandles: иначе перехваченные дескрипторы до ребёнка не дойдут
 		acCreateFlagExtendedStartupInfo|acCreateFlagUnicodeEnvironment,
-		0,
-		0,
+		uintptr(unsafe.Pointer(envPtr)),
+		uintptr(unsafe.Pointer(cwdPtr)),
 		uintptr(unsafe.Pointer(&si)),
 		uintptr(unsafe.Pointer(&pi)),
 	)
@@ -245,6 +315,9 @@ func acRunInContainer(t *testing.T, sid *windows.SID, cmdline, cwd string, env [
 	windows.CloseHandle(pi.Process)
 	fmt.Printf("[probe] процесс завершён, код=%d\n", code)
 	if code != 0 {
+		if out, rerr := os.ReadFile(filepath.Join(cwd, "child.out")); rerr == nil && len(out) > 0 {
+			return fmt.Errorf("процесс в контейнере завершился с кодом %d, его вывод:\n%s", code, out)
+		}
 		return fmt.Errorf("процесс в контейнере завершился с кодом %d", code)
 	}
 	return nil
@@ -328,6 +401,17 @@ func TestAppContainerProbe(t *testing.T) {
 	if err := acGrant(scratch, sid, windows.GENERIC_ALL); err != nil {
 		t.Fatalf("выдача прав на scratch: %v", err)
 	}
+	// Каталог интерпретатора — аддитивно, без PROTECTED: см. acGrantAdditive.
+	// Без этой выдачи контейнерный ребёнок создаётся, но не может загрузить
+	// интерпретатор и выходит с кодом 5.
+	// Файл в каталоге плагина нужен, чтобы выдачу на чтение было видно: на
+	// пустом каталоге «прочитал» и «недостижим» дают одинаковый пустой список.
+	if err := os.WriteFile(filepath.Join(pluginDir, "data.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := acGrantAdditive(filepath.Dir(py), sid, windows.GENERIC_READ|windows.GENERIC_EXECUTE); err != nil {
+		t.Fatalf("выдача прав на каталог интерпретатора: %v", err)
+	}
 	// denied — намеренно без выдачи.
 
 	script := filepath.Join(scratch, "probe.py")
@@ -386,16 +470,31 @@ func TestAppContainerProbe(t *testing.T) {
 	t.Logf("ИЗМЕРЕНИЕ AppContainer:\n%s", raw)
 
 	res := string(raw)
-	checks := map[string]bool{
-		"каталог плагина только для чтения": strings.Contains(res, `"plugin_write":"DENIED"`),
-		"scratch доступен на запись":        strings.Contains(res, `"scratch_write":"OK"`),
-		"каталог без выдачи недостижим":     strings.Contains(res, `"denied_read":"DENIED"`),
-		"исходящая сеть запрещена":          strings.Contains(res, `"socket":"DENIED"`),
+	// Разбором, а не поиском подстроки. Скрипт печатает JSON с отступами
+	// (indent=1), поэтому проверки вида `"scratch_write":"OK"` не могли
+	// сработать никогда: между двоеточием и значением всегда есть пробел. На
+	// деле они молча ничего не проверяли, и это выглядело как «изоляция
+	// нарушена».
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("результат пробы не разобран: %v\n%s", err, res)
 	}
-	for name, ok := range checks {
-		if !ok {
-			t.Errorf("НЕ ВЫПОЛНЕНО: %s\n%s", name, res)
+	want := []struct{ name, key, val string }{
+		{"каталог плагина только для чтения", "plugin_write", "PermissionError"},
+		{"scratch доступен на запись", "scratch_write", "OK"},
+		{"каталог без выдачи недостижим", "denied_read", "PermissionError"},
+		{"исходящая сеть запрещена", "socket", "DENIED"},
+	}
+	for _, c := range want {
+		v, _ := got[c.key].(string)
+		if v != c.val {
+			t.Errorf("НЕ ВЫПОЛНЕНО: %s: %s=%q, ожидалось %q", c.name, c.key, v, c.val)
 		}
+	}
+	// Отдельно: «только для чтения» должно отличаться от «недостижим». Если
+	// каталог плагина вообще не читается, запрет на запись ничего не доказывает.
+	if list, _ := got["plugin_list"].([]any); len(list) == 0 {
+		t.Errorf("НЕ ВЫПОЛНЕНО: каталог плагина не читается — выдача на чтение не действует\n%s", res)
 	}
 }
 
@@ -416,16 +515,27 @@ func realPython() string {
 	if err != nil {
 		return ""
 	}
+	// bin\python.exe — шимб PyManager: интерпретатор он не запускает сам, а
+	// перенаправляет запуск в pythoncore-*. Внутри контейнера шимб не может
+	// добраться до настоящего интерпретатора и падает с «the install path could
+	// not be accessed», поэтому берём сразу настоящий бинарник.
+	var fallback string
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
 		}
 		cand := filepath.Join(root, e.Name(), "python.exe")
-		if _, err := os.Stat(cand); err == nil {
+		if _, err := os.Stat(cand); err != nil {
+			continue
+		}
+		if strings.HasPrefix(e.Name(), "pythoncore-") {
 			return cand
 		}
+		if fallback == "" {
+			fallback = cand
+		}
 	}
-	return ""
+	return fallback
 }
 
 func probeScript() string {

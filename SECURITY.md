@@ -233,8 +233,10 @@ the writable plugin directory. The archived test is the only behavioural
 verification of a real isolator on real hardware in this repository, so it is
 kept rather than deleted.
 
-An AppContainer backend for Windows was investigated and is not enabled. This
-section previously blamed host ACL state. That diagnosis was wrong, and the
+An AppContainer backend for Windows is measured to work and is **not yet
+wired into the plugin runner**: no `sandbox_windows.go` exists, so untrusted
+code is still refused rather than isolated. This section previously blamed host
+ACL state. That diagnosis was wrong, and the
 measurements behind it probed the wrong operation. Corrected findings, all
 measured on a clean Windows 10 Enterprise 22H2 x64 VM from a non-elevated
 process (`elevated: false`), using `SetNamedSecurityInfo` with
@@ -379,16 +381,18 @@ Measured offsets, taken from a native C reference built here with MinGW-w64:
 | `lpAttributeList` | 104 | 96 |
 | `sizeof(STARTUPINFOEX)` | 112 | 104 |
 
-With the field restored, `CreateProcessW` creates the AppContainer process.
+With the field restored, the probe passes end to end. Measured inside the
+container, from the child's own point of view:
 
-**Still open, measured on this host:** the containerised child exits with code
-5. The interpreter's own directory carries no AppContainer grant, so the child
-cannot load it. Granting that directory is the next step; it was not done
-unilaterally because `acGrant` writes a *protected* DACL and would replace the
-existing ACL on a real Python installation.
+| property | measured |
+|---|---|
+| plugin directory is readable | `plugin_list` lists the granted file |
+| plugin directory is not writable | `plugin_write` → `PermissionError` |
+| granted scratch directory is writable | `scratch_write` → `OK` |
+| directory with no grant is unreachable | `denied_read` → `PermissionError` |
+| outbound network is refused | `socket` → `DENIED` |
 
-The probe skips rather than fails, so CI stays green and the blocker stays
-written down.
+The probe skips rather than fails, so CI stays green.
 
 Ruled out by measurement along the way, so they need not be re-tested: flag
 arithmetic (`CREATE_UNICODE_ENVIRONMENT` added), the environment block, the
@@ -398,7 +402,27 @@ returns `ERROR_INVALID_PARAMETER`), and the capacity of the attribute list
 (`InitializeProcThreadAttributeList` returns 48/72/96 bytes for 1/2/3
 attributes, as it should).
 
-**Two traps that cost time and look like anything else:**
+**Traps that cost time and look like anything else:**
+
+- Two of them were self-inflicted, and both produced confident wrong answers
+  worth recording. First: an invented attribute constant (`0x0002000A` for
+  `ALL_APPLICATION_PACKAGES_POLICY`, which is not that value) produced a
+  plausible `ERROR_BAD_LENGTH`, and the conclusion drawn from it — "the
+  attribute list is malformed" — was worthless. Second: the isolation checks
+  matched substrings like `"scratch_write":"OK"` against JSON printed with
+  `indent=1`, so they could never pass and were silently checking nothing.
+  Both read as platform findings and neither was.
+- `%LOCALAPPDATA%\Python\bin\python.exe` is the PyManager **shim**: it does not
+  run the interpreter, it redirects to `pythoncore-*`. Inside the container the
+  shim cannot reach the real interpreter and the child exits 5 with "the
+  install path could not be accessed". Run the real binary under
+  `pythoncore-*`, as Chromium does.
+- Granting the interpreter directory must **add** to its existing DACL.
+  `SetEntriesInAcl`-style merge plus a write *without* `PROTECTED` keeps the
+  installation working; rebuilding the ACL from scratch and protecting it would
+  replace the ACL a real Python install depends on. The probe has separate
+  functions for this reason: `acGrant` for its own scratch directories,
+  `acGrantAdditive` for anything pre-existing.
 
 - `os/exec` cannot express this at all. `syscall.StartProcess` on Windows calls
   `newProcThreadAttributeList(2)` and supports only
