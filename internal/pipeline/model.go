@@ -58,7 +58,10 @@ type Pipeline struct {
 	// v0.9: gates — политика гейтов пайплайна: "human_only" запрещает
 	// авто-аппрув (--yes) для всех human_gate; "any" / "" — по шагу.
 	Gates string `yaml:"gates"`
-	Steps []Step `yaml:"steps"`
+	// v0.35: schedule — планировщик. nil = solo-прокрут (ручной запуск).
+	// Если заполнен — cron + политика overlap/catchUp + humanGate + alerts.
+	Schedule *Schedule `yaml:"schedule,omitempty"`
+	Steps    []Step    `yaml:"steps"`
 }
 
 type Step struct {
@@ -104,6 +107,44 @@ type Step struct {
 // RequiresHuman — гейт этого шага нельзя одобрить автоматически (--yes).
 func (p *Pipeline) RequiresHuman(st *Step) bool {
 	return p.Gates == "human_only" || st.Approval == "human"
+}
+
+// Schedule — планировщик пайплайна (тумблер соло / по расписанию в GUI).
+// Логика: пустой Schedule = ручной режим, не nil = планировщик включен.
+// Cron — стандартный 5-полей "* * * * *", Timezone — IANA или "Local".
+type Schedule struct {
+	Cron      string         `yaml:"cron"`
+	Timezone  string         `yaml:"timezone,omitempty"`
+	Enabled   *bool          `yaml:"enabled,omitempty"`
+	Overlap   string         `yaml:"overlap,omitempty"`
+	CatchUp   bool           `yaml:"catch_up,omitempty"`
+	HumanGate string         `yaml:"human_gate,omitempty"`
+	Alerts    ScheduleAlerts `yaml:"alerts,omitempty"`
+}
+
+type ScheduleAlerts struct {
+	OnWaiting string `yaml:"on_waiting,omitempty"`
+	OnFailure string `yaml:"on_failure,omitempty"`
+	Webhook   string `yaml:"webhook,omitempty"`
+}
+
+// IsEnabled — включен ли планировщик. nil Enabled = true (как в GUI).
+func (s *Schedule) IsEnabled() bool {
+	if s == nil {
+		return false
+	}
+	if s.Enabled == nil {
+		return true
+	}
+	return *s.Enabled
+}
+
+// Mode — режим запуска: "solo" или "scheduled"
+func (p *Pipeline) Mode() string {
+	if p.Schedule != nil {
+		return "scheduled"
+	}
+	return "solo"
 }
 
 type Retry struct {

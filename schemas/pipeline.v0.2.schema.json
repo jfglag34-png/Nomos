@@ -61,6 +61,48 @@
           "type": "string",
           "enum": ["human_only", "any"]
         },
+        "schedule": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cron"],
+          "properties": {
+            "cron": {
+              "type": "string",
+              "description": "cron 5 полей: \"0 9 * * *\""
+            },
+            "timezone": {
+              "type": "string",
+              "description": "IANA таймзона, напр. Europe/Minsk или UTC"
+            },
+            "enabled": {
+              "type": "boolean",
+              "description": "выключен = пайплайн как соло"
+            },
+            "overlap": {
+              "type": "string",
+              "enum": ["skip", "queue", "allow"],
+              "description": "что делать если предыдущий ран еще идет"
+            },
+            "catch_up": {
+              "type": "boolean",
+              "description": "догнать пропущенное если сервер был выключен"
+            },
+            "human_gate": {
+              "type": "string",
+              "enum": ["autoApprove", "wait", "auto_approve"],
+              "description": "как вести себя на human_gate при кроне"
+            },
+            "alerts": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "on_waiting": {"type": "string"},
+                "on_failure": {"type": "string"},
+                "webhook": {"type": "string"}
+              }
+            }
+          }
+        },
         "steps": {
           "type": "array",
           "minItems": 1,

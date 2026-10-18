@@ -1,0 +1,25 @@
+format_version: "0.2"
+pipeline:
+  name: scheduled_demo
+  input:
+    text: "привет от шедулера"
+  schedule:
+    cron: "0 9 * * *"
+    timezone: "Europe/Minsk"
+    enabled: true
+    overlap: skip
+    catch_up: false
+    human_gate: autoApprove
+    alerts:
+      on_waiting: telegram_notifier
+      webhook: "https://example.com/hook"
+  steps:
+    - id: stats
+      plugin: core/text_stats
+      bind:
+        text: input.text
+    - id: review
+      plugin: core/human_gate
+      form:
+        - { field: steps.stats.words, editable: false }
+      actions: [accept, reject]

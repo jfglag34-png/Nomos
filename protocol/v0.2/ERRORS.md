@@ -71,6 +71,10 @@
 | E_TIMEOUT_LIMIT | `timeout` вне 0..30m | `timeout: "5m"`, ноль = без предела |
 | E_GATE_ACTIONS | `form.actions` пустой или не подмножество `accept`/`reject` | `actions: [accept, reject]` |
 | E_BIND_SOURCE_INVALID | `bind` ссылается не на `input.*`/`steps.*` | `fix.candidates: input.* + steps.*` |
+| E_SCHEDULE_CRON | `pipeline.schedule.cron` пустой или не 5 полей | `fix.candidates: [\"0 9 * * *\",\"0 * * * *\"]` |
+| E_SCHEDULE_TIMEZONE | `pipeline.schedule.timezone` неизвестен | `fix.candidates: [Europe/Minsk,UTC]` |
+| E_SCHEDULE_OVERLAP | `pipeline.schedule.overlap` не skip/queue/allow | `fix.candidates: [skip,queue,allow]` |
+| E_SCHEDULE_HUMAN_GATE | `pipeline.schedule.human_gate` не autoApprove/wait | `fix.candidates: [autoApprove,wait]` |
 | E_PLUGIN_LOAD | плагин не загрузился: битый `plugin.yaml` **любого** поля или несовместимый `platform_api` | проверьте путь и plugin.yaml |
 
 ## Предупреждения (pre-run, не блокируют)

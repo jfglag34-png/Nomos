@@ -82,6 +82,18 @@ func Run() {
 			return
 		}
 		RunDemo(os.Args[2:])
+	case "schedule":
+		if helpRequested(os.Args[2:]) {
+			printHelp()
+			return
+		}
+		RunSchedule(os.Args[2:])
+	case "daemon":
+		if helpRequested(os.Args[2:]) {
+			printHelp()
+			return
+		}
+		RunDaemon(os.Args[2:])
 	case "doctor":
 		if helpRequested(os.Args[2:]) {
 			printHelp()
@@ -108,6 +120,8 @@ func printHelp() {
 
 Команды (мясо, не косметика):
   wedra pipeline run <file.yaml> [--yes] [--resume=<run_id>] [--runs-dir=var/runs] [--store=fs|json] [--no-auto-approve] [--deny-untrusted-plugins] [--allow-untrusted-plugins]
+  wedra schedule [--pipelines=<dir>] [--runs-dir=<dir>]      # показать next_run для всех cron
+  wedra daemon [--pipelines=<dir>] [--runs-dir=<dir>]        # демон: тикает каждую минуту, запускает due пайплайны (solo vs scheduled)
   wedra pipeline install <name|file.yaml|url> [--registry=<url|path>]  # пресет + автоустановка плагинов
   wedra pipeline validate <file.yaml> [--json]      # --json: {ok, issues[]} с кодами (ERRORS.md)
   wedra pipeline plan <file.yaml>

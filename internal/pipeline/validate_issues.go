@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // collector — аккумулятор Issue с хелперами err/warn.
@@ -107,6 +108,25 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 	}
 	if p.Network != "" && p.Network != "allow" && p.Network != "deny" {
 		v.err(E_NETWORK_VALUE, "", "", "pipeline.network", "допускаются: allow, deny", &Fix{Op: "set", Target: "pipeline.network", Candidates: []string{"allow", "deny"}}, "pipeline network=%q, ожидается allow|deny", p.Network)
+	}
+	// v0.35 schedule — планировщик (тумблер соло/по расписанию)
+	if p.Schedule != nil {
+		if strings.TrimSpace(p.Schedule.Cron) == "" {
+			v.err(E_SCHEDULE_CRON, "", "", "pipeline.schedule.cron", "укажите cron: \"0 9 * * *\"", &Fix{Op: "set", Target: "pipeline.schedule.cron", Candidates: []string{"0 9 * * *", "0 * * * *", "*/5 * * * *"}}, "schedule: cron не задан")
+		} else if !isValidCron(p.Schedule.Cron) {
+			v.err(E_SCHEDULE_CRON, "", "", "pipeline.schedule.cron", "формат cron: 5 полей \"* * * * *\"", &Fix{Op: "set", Target: "pipeline.schedule.cron", Candidates: []string{"0 9 * * *", "0 * * * *"}}, "schedule: cron %q невалиден (ожидается 5 полей)", p.Schedule.Cron)
+		}
+		if p.Schedule.Timezone != "" {
+			if err := validateTimezone(p.Schedule.Timezone); err != nil {
+				v.err(E_SCHEDULE_TIMEZONE, "", "", "pipeline.schedule.timezone", "IANA таймзона, напр. Europe/Minsk или UTC", &Fix{Op: "set", Target: "pipeline.schedule.timezone", Candidates: []string{"Europe/Minsk", "UTC", "Local"}}, "schedule: timezone %q: %v", p.Schedule.Timezone, err)
+			}
+		}
+		if p.Schedule.Overlap != "" && p.Schedule.Overlap != "skip" && p.Schedule.Overlap != "queue" && p.Schedule.Overlap != "allow" {
+			v.err(E_SCHEDULE_OVERLAP, "", "", "pipeline.schedule.overlap", "допускаются: skip, queue, allow", &Fix{Op: "set", Target: "pipeline.schedule.overlap", Candidates: []string{"skip", "queue", "allow"}}, "schedule: overlap=%q, ожидается skip|queue|allow", p.Schedule.Overlap)
+		}
+		if p.Schedule.HumanGate != "" && p.Schedule.HumanGate != "autoApprove" && p.Schedule.HumanGate != "wait" && p.Schedule.HumanGate != "auto_approve" {
+			v.err(E_SCHEDULE_HUMAN_GATE, "", "", "pipeline.schedule.human_gate", "допускаются: autoApprove, wait", &Fix{Op: "set", Target: "pipeline.schedule.human_gate", Candidates: []string{"autoApprove", "wait"}}, "schedule: human_gate=%q, ожидается autoApprove|wait", p.Schedule.HumanGate)
+		}
 	}
 	if p.Foreach != "" {
 		if strings.HasPrefix(p.Foreach, "input.") {
@@ -211,11 +231,11 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 			if st.ForeachItem != "" && strings.ContainsAny(st.ForeachItem, ". \t\"'") {
 				v.err(E_FOREACH_ITEM_NAME, st.ID, "", "pipeline.steps."+st.ID+".foreach_item", "имя должно быть простым: буквы, цифры, _", nil, "шаг %s: foreach_item должно быть простым именем (got %q)", st.ID, st.ForeachItem)
 			}
-			if IsBuiltin(st.Plugin) {
+			if IsHumanGate(st.Plugin) {
 				v.err(E_GATE_FOREACH, st.ID, "", "pipeline.steps."+st.ID, "human_gate работает с одним набором полей, не с массивом", nil, "шаг %s: human_gate не принимает foreach", st.ID)
 			}
 		}
-		if st.ParallelGroup != "" && IsBuiltin(st.Plugin) {
+		if st.ParallelGroup != "" && IsHumanGate(st.Plugin) {
 			v.err(E_GATE_PARALLEL, st.ID, "", "pipeline.steps."+st.ID, "вынесите гейт из параллельной группы", nil, "шаг %s: human_gate нельзя ставить в параллельную группу %q (гейты сериализуют терминал)", st.ID, st.ParallelGroup)
 		}
 		switch st.OnError {
@@ -235,7 +255,7 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 		if st.Approval != "" && st.Approval != "human" && st.Approval != "any" {
 			v.err(E_APPROVAL_VALUE, st.ID, "", "pipeline.steps."+st.ID+".approval", "допускаются: human, any", &Fix{Op: "set", Target: "steps." + st.ID + ".approval", Candidates: []string{"human", "any"}}, "шаг %s: approval=%s, ожидается human|any", st.ID, st.Approval)
 		}
-		if IsBuiltin(st.Plugin) {
+		if IsHumanGate(st.Plugin) {
 			if len(st.Bind) > 0 {
 				v.err(E_GATE_BIND, st.ID, "", "pipeline.steps."+st.ID+".bind", "у human_gate данные берутся из form, не из bind", nil, "шаг %s: human_gate не принимает bind", st.ID)
 			}
@@ -268,6 +288,60 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 				}
 			}
 			prior[st.ID] = priorStep{step: st, manifest: &Manifest{ID: "core/human_gate"}}
+			continue
+		}
+		// core/text_stats — встроенный, но не гейт: валидируем как плагин с известными портами
+		if st.Plugin == "core/text_stats" {
+			// синтетический манифест как в plugin/registry.go
+			m := &Manifest{
+				ID: "core/text_stats",
+				Input: map[string]Port{"text": {Type: "string", Format: "text"}},
+				Output: map[string]Port{
+					"lines":        {Type: "number"},
+					"words":        {Type: "number"},
+					"unique_words": {Type: "number"},
+					"longest_word": {Type: "string", Format: "text"},
+				},
+			}
+			// reuse normal validation with m
+			// (copied below but with m)
+			for b := range st.Bind {
+				if _, ok := m.Input[b]; !ok {
+					ports := portNameList(m.Input)
+					v.err(E_BIND_UNKNOWN_PORT, st.ID, b, "pipeline.steps."+st.ID+".bind."+b, fmt.Sprintf("порты плагина: %s", strings.Join(ports, ", ")), &Fix{Op: "bind", Target: "steps." + st.ID + "." + b, Candidates: ports}, "шаг %s: bind указывает на несуществующий порт %q (порты: %s)", st.ID, b, portNames(m.Input))
+				}
+			}
+			for b, src := range st.Bind {
+				if isContextRef(src) { continue }
+				v.err(E_BIND_SOURCE_INVALID, st.ID, b, "pipeline.steps."+st.ID+".bind."+b, "укажите input.<поле> или steps.<шаг>.<выход>", nil, "шаг %s, порт %s: bind = %q не является ссылкой на контекст", st.ID, b, src)
+			}
+			// check input binding exists
+			for portName, port := range m.Input {
+				srcPath := PortSource(portName, port, st)
+				if srcPath == "" {
+					if port.Optional { continue }
+					cands := compatibleOutputs(prior, port.Type, port.Format)
+					cands = append(cands, inputFieldList(pf)...)
+					v.err(E_PORT_UNBOUND, st.ID, portName, "pipeline.steps."+st.ID+".bind."+portName, "привяжите порт через bind", &Fix{Op: "bind", Target: "steps." + st.ID + "." + portName, Candidates: cands}, "шаг %s, порт %s: нет привязки", st.ID, portName)
+					continue
+				}
+				src, code, perr := resolveSourceCoded(srcPath, prior, pf, st)
+				if perr != "" {
+					if port.Optional {
+						v.warn(W_PORT_OPTIONAL_SOURCE, st.ID, portName, srcPath, "optional-порт: источник может отсутствовать", nil, "шаг %s, порт %s: %s (optional)", st.ID, portName, perr)
+					} else {
+						fixCands := append(inputFieldList(pf), compatibleOutputs(prior, port.Type, port.Format)...)
+						v.err(code, st.ID, portName, srcPath, fmt.Sprintf("доступные поля: %s", strings.Join(inputFieldList(pf), ", ")), &Fix{Op: "bind", Target: "steps." + st.ID + "." + portName, Candidates: fixCands}, "шаг %s, порт %s: %s", st.ID, portName, perr)
+					}
+					continue
+				}
+				src.Name = srcPath
+				if src.Type != "" && port.Type != "" && src.Type != port.Type {
+					cands := compatibleOutputs(prior, port.Type, port.Format)
+					v.err(E_TYPE_MISMATCH, st.ID, portName, srcPath, fmt.Sprintf("нужен тип %q, пришёл %q", port.Type, src.Type), &Fix{Op: "bind", Target: "steps." + st.ID + "." + portName, Candidates: cands}, "шаг %s, порт %s: тип %s несовместим с выходом %q (%s)", st.ID, portName, port.Type, src.Name, src.Type)
+				}
+			}
+			prior[st.ID] = priorStep{step: st, manifest: m}
 			continue
 		}
 		m, err := eng.LoadManifest(st.Plugin)
@@ -577,6 +651,40 @@ func isEmptySourceValue(src srcInfo, pf *PipelineFile) bool {
 	default:
 		return false
 	}
+}
+
+// v0.35: валидация cron — 5 полей, каждое */,-,цифры
+func isValidCron(cron string) bool {
+	parts := strings.Fields(cron)
+	if len(parts) != 5 {
+		return false
+	}
+	for _, p := range parts {
+		if p == "" {
+			return false
+		}
+		for _, ch := range p {
+			if !(ch >= '0' && ch <= '9' || ch == '*' || ch == '/' || ch == '-' || ch == ',' ) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func validateTimezone(tz string) error {
+	if tz == "Local" || tz == "UTC" || tz == "local" {
+		return nil
+	}
+	// IANA: содержит "/" или известное сокращение
+	if strings.Contains(tz, "/") {
+		return nil
+	}
+	// разрешаем Europe/Minsk, Asia/Tokyo и т.п.
+	if _, err := time.LoadLocation(tz); err == nil {
+		return nil
+	}
+	return fmt.Errorf("неизвестная таймзона")
 }
 
 // кривой путь) — E_PORT_SOURCE: для агента это один класс «перепривяжи».
