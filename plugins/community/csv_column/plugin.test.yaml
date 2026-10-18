@@ -1,0 +1,112 @@
+# Контракт-тесты csv_column: выбор колонки, пустые ячейки, дубли, доменные ошибки.
+tests:
+  - name: вытаскивает колонку в порядке строк
+    input:
+      rows:
+        - { name: "Анна", email: "anna@example.com" }
+        - { name: "Борис", email: "boris@example.com" }
+      column: "email"
+    expect:
+      status: ok
+      output:
+        values: ["anna@example.com", "boris@example.com"]
+        count: 2
+        missing: 0
+        duplicates: 0
+        unique: 2
+
+  - name: пустые ячейки и отсутствующий ключ считаются missing
+    input:
+      rows:
+        - { email: "anna@example.com" }
+        - { email: "" }
+        - { email: "   " }
+        - { name: "Без почты" }
+      column: "email"
+    expect:
+      status: ok
+      output:
+        values: ["anna@example.com"]
+        count: 1
+        missing: 3
+        unique: 1
+
+  - name: повторы считаются, но остаются в values
+    input:
+      rows:
+        - { email: "Anna@Example.com" }
+        - { email: "anna@example.com" }
+        - { email: "boris@example.com" }
+      column: "email"
+    expect:
+      status: ok
+      output:
+        count: 3
+        duplicates: 1
+        unique: 2
+
+  - name: числовая колонка приводится к строке
+    input:
+      rows:
+        - { plan: 1 }
+        - { plan: 2 }
+      column: "plan"
+    expect:
+      status: ok
+      output:
+        values: ["1", "2"]
+        count: 2
+
+  - name: нет такой колонки — доменная ошибка
+    input:
+      rows:
+        - { email: "anna@example.com" }
+      column: "phone"
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_column, retryable: false }
+
+  - name: пустое имя колонки — доменная ошибка
+    input:
+      rows:
+        - { email: "anna@example.com" }
+      column: "  "
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_column }
+
+  - name: пустой rows — доменная ошибка
+    input:
+      rows: []
+      column: "email"
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_rows }
+
+  - name: строки без заголовка — доменная ошибка с подсказкой
+    input:
+      rows:
+        - ["anna@example.com", "30"]
+      column: "email"
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: not_objects }
+
+  - name: rows не массив — платформенная ошибка
+    input:
+      rows: "anna@example.com"
+      column: "email"
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: "platform:bad_input" }
+
+  - name: битый JSON — платформенная ошибка
+    input_raw: "{oops"
+    expect:
+      exit_code: 2
+      error: { code: "platform:bad_input" }
