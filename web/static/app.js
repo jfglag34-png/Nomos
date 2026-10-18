@@ -120,6 +120,121 @@ function lastPipeline() {
   try { return localStorage.getItem(LAST_PIPELINE_KEY) || ''; } catch (e) { return ''; }
 }
 
+function parseScheduleFromYaml(yaml) {
+  if (!yaml || yaml.indexOf('schedule:') === -1) return null;
+  // минимальный парсер: выдираем блок schedule из YAML (от schedule: до steps:)
+  const m = yaml.match(/schedule:\s*\n([\s\S]*?)\n\s*steps:/);
+  if (!m) return null;
+  const block = m[1];
+  const get = (k) => { const r = block.match(new RegExp(k + ':\\s*\"?([^\"\\n]+)\"?')); return r ? r[1].trim() : ''; };
+  const cron = get('cron');
+  if (!cron) return null;
+  return {
+    cron: cron.replace(/^\"|\"$/g, ''),
+    timezone: get('timezone') || 'Europe/Minsk',
+    enabled: block.indexOf('enabled: false') === -1,
+    overlap: get('overlap') || 'skip',
+    catchUp: block.indexOf('catch_up: true') !== -1,
+    humanGate: get('human_gate') || 'autoApprove',
+    alerts: {
+      on_waiting: get('on_waiting') || '',
+      webhook: get('webhook') || ''
+    }
+  };
+}
+
+function buildYamlWithSchedule(yaml, sched) {
+  if (!sched) {
+    // убрать блок schedule целиком
+    return yaml.replace(/\n\s*schedule:\s*\n(?:[ \t]+[^\n]*\n)*/g, '\n');
+  }
+  const block = `  schedule:\n    cron: "${sched.cron}"\n    timezone: ${sched.timezone}\n    enabled: ${sched.enabled}\n    overlap: ${sched.overlap}\n    catch_up: ${sched.catchUp}\n    human_gate: ${sched.humanGate}\n    alerts:\n      on_waiting: ${sched.alerts.on_waiting || 'telegram_notifier'}\n      webhook: "${sched.alerts.webhook || ''}"\n`;
+  if (yaml.indexOf('schedule:') !== -1) {
+    return yaml.replace(/\n\s*schedule:\s*\n(?:[ \t]+[^\n]*\n)*/g, '\n' + block);
+  }
+  // вставить перед steps:
+  return yaml.replace(/\n(\s*)steps:/, '\n' + block + '$1steps:');
+}
+
+function wireScheduleCard(file, yaml, sched) {
+  const status = document.getElementById('sched-status');
+  const cronEl = document.getElementById('sched-cron');
+  const tzEl = document.getElementById('sched-tz');
+  const overlapEl = document.getElementById('sched-overlap');
+  const catchupEl = document.getElementById('sched-catchup');
+  const nextEl = document.getElementById('sched-next');
+  const nextEl2 = document.getElementById('sched-next2');
+  const alertsEl = document.getElementById('sched-alerts');
+  if (!cronEl) return;
+  const updateNext = () => {
+    // грубая человекочитаемая подсказка как в cron.go Human()
+    const c = cronEl.value.trim();
+    const human = { '*/5 * * * *':'каждые 5м', '0 * * * *':'каждый час', '0 9 * * *':'каждый день 09:00', '0 9 * * 1':'пн 09:00' }[c] || c;
+    if (nextEl) nextEl.textContent = c ? human : '';
+    if (nextEl2) nextEl2.textContent = c ? human : '—';
+  };
+  updateNext();
+  cronEl.addEventListener('input', updateNext);
+  document.querySelectorAll('[data-cron]').forEach(b => b.addEventListener('click', () => { cronEl.value = b.dataset.cron; updateNext(); }));
+  document.querySelectorAll('input[name=\"sched-gate\"]').forEach(r => r.addEventListener('change', () => {
+    if (alertsEl) alertsEl.style.display = document.querySelector('input[name=\"sched-gate\"]:checked').value === 'wait' ? 'block' : 'none';
+  }));
+  const btnSolo = document.getElementById('sched-mode-solo');
+  const btnCron = document.getElementById('sched-mode-cron');
+  const panel = document.getElementById('sched-panel');
+  const soloHint = document.getElementById('sched-solo-hint');
+  if (btnSolo) btnSolo.addEventListener('click', () => {
+    panel.style.display = 'none'; soloHint.style.display='block';
+    btnSolo.style.background='var(--acc)'; btnSolo.style.color='var(--sunken)'; btnCron.style.background='transparent'; btnCron.style.color='var(--bone)';
+    saveSchedule(file, yaml, null);
+  });
+  if (btnCron) btnCron.addEventListener('click', () => {
+    panel.style.display = 'block'; soloHint.style.display='none';
+    btnCron.style.background='var(--acc)'; btnCron.style.color='var(--sunken)'; btnSolo.style.background='transparent'; btnSolo.style.color='var(--bone)';
+    const s = collectScheduleFromUI();
+    if (!s.cron) s.cron='0 9 * * *';
+    saveSchedule(file, yaml, s);
+  });
+  const saveBtn = document.getElementById('sched-save');
+  if (saveBtn) saveBtn.addEventListener('click', () => {
+    const s = collectScheduleFromUI();
+    saveSchedule(file, yaml, s);
+  });
+}
+
+function collectScheduleFromUI() {
+  const cron = (document.getElementById('sched-cron')||{}).value || '0 9 * * *';
+  const timezone = (document.getElementById('sched-tz')||{}).value || 'Europe/Minsk';
+  const overlap = (document.getElementById('sched-overlap')||{}).value || 'skip';
+  const catchUp = !!(document.getElementById('sched-catchup')||{}).checked;
+  const hg = document.querySelector('input[name=\"sched-gate\"]:checked');
+  const humanGate = hg ? hg.value : 'autoApprove';
+  const on_waiting = (document.getElementById('sched-tg')||{}).value || 'telegram_notifier';
+  const webhook = (document.getElementById('sched-hook')||{}).value || '';
+  return { cron, timezone, enabled: true, overlap, catchUp, humanGate, alerts: { on_waiting, webhook } };
+}
+
+async function saveSchedule(file, yaml, sched) {
+  const st = document.getElementById('sched-status');
+  if (st) st.textContent = 'сохранение…';
+  const newYaml = buildYamlWithSchedule(yaml, sched);
+  try {
+    const r = await fetch('/api/pipelines/' + encodeURIComponent(file), { method: 'PUT', headers: {'Content-Type': 'text/yaml'}, body: newYaml });
+    const body = await r.text();
+    let j; try { j = JSON.parse(body); } catch {}
+    if (!r.ok) {
+      const msg = j && j.issues ? j.issues.map(i=>i.code+': '+i.message).join('\\n') : body;
+      throw new Error(msg);
+    }
+    if (st) { st.textContent = '✓ сохранено'; st.style.color='var(--ok)'; }
+    setTimeout(() => { if(st) st.textContent=''; }, 1500);
+    // переоткрыть карточку с новым yaml
+    setTimeout(() => openPipeline(file), 600);
+  } catch(e) {
+    if (st) { st.textContent = e.message; st.style.color='var(--err)'; }
+  }
+}
+
 // enterLastPipeline — увести в редактор последнего пайплайна.
 //
 // Переход идёт через sessionStorage 'wedra.open': это тот же способ, которым
@@ -1244,19 +1359,77 @@ async function openPipeline(file) {
     return;
   }
   const p = state.pipelines.find(x => x.file === file) || {};
+  const sched = parseScheduleFromYaml(yaml);
+  const schedBadge = sched ? `<span class="badge" style="border-color:var(--acc);color:var(--acc)">◷ ${esc(sched.cron || '')} ${sched.timezone ? '· ' + esc(sched.timezone) : ''}</span>` : `<span class="badge">⏺ соло</span>`;
   $('#pdetail').innerHTML = `
     <div class="dhead" style="margin-bottom:12px">
       <h2>${esc(p.name || file)}</h2>
       <span class="sub">${esc(p.steps)} ш.${p.foreach ? ' · foreach ' + esc(p.foreach) : ''}</span>
       ${plan.errors && plan.errors.length ? `<span class="badge err">errors: ${plan.errors.length}</span>` : '<span class="badge ok">валиден</span>'}
+      ${schedBadge}
     </div>
     ${plan.errors && plan.errors.length ? `<div style="color:var(--err);font-size:12px;margin-bottom:10px">${plan.errors.map(esc).join('<br>')}</div>` : ''}
     ${plan.warnings && plan.warnings.length ? `<div style="color:var(--skip);font-size:12px;margin-bottom:10px">${plan.warnings.map(esc).join('<br>')}</div>` : ''}
+    <div class="card" id="sched-card" style="margin-bottom:16px">
+      <h3>Запуск <span style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--faint)"> — соло vs по расписанию · твой сервер, без облака</span> <span id="sched-next" style="float:right;color:var(--faint);font-size:10px"></span></h3>
+      <div style="padding:14px">
+        <div style="display:flex;gap:6px;margin-bottom:10px;background:var(--sunken);border:1px solid var(--hair);border-radius:var(--r);padding:3px;width:fit-content">
+          <button id="sched-mode-solo" class="btn" style="background:${sched ? 'transparent' : 'var(--acc)'};color:${sched ? 'var(--bone)' : 'var(--sunken)'};border-color:${sched ? 'transparent' : 'var(--acc)'};font-weight:600">▶ Соло — запустил, получил</button>
+          <button id="sched-mode-cron" class="btn" style="background:${sched ? 'var(--acc)' : 'transparent'};color:${sched ? 'var(--sunken)' : 'var(--bone)'};border-color:${sched ? 'var(--acc)' : 'transparent'};font-weight:600">◷ По расписанию — крутится само</button>
+        </div>
+        <div id="sched-panel" style="display:${sched ? 'block' : 'none'}">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div>
+              <label style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)">CRON</label>
+              <input id="sched-cron" value="${esc(sched ? sched.cron : '0 9 * * *')}" placeholder="* * * * *" style="width:100%;background:var(--sunken);color:var(--bone);border:1px solid var(--hair2);border-radius:var(--r);padding:7px 9px;font-family:var(--mono);font-size:12px;margin-top:4px"/>
+              <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+                <button class="mini" data-cron="*/5 * * * *">каждые 5м</button>
+                <button class="mini" data-cron="0 * * * *">час</button>
+                <button class="mini" data-cron="0 9 * * *">09:00</button>
+                <button class="mini" data-cron="0 9 * * 1">пн 09:00</button>
+              </div>
+            </div>
+            <div>
+              <label style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)">Таймзона</label>
+              <select id="sched-tz" style="width:100%;background:var(--sunken);color:var(--bone);border:1px solid var(--hair2);border-radius:var(--r);padding:7px 9px;font-size:12px;margin-top:4px">
+                <option ${sched && sched.timezone==='Europe/Minsk' ? 'selected' : ''}>Europe/Minsk</option>
+                <option ${!sched || !sched.timezone || sched.timezone==='UTC' ? '' : ''}>UTC</option>
+                <option ${sched && sched.timezone==='Europe/Moscow' ? 'selected' : ''}>Europe/Moscow</option>
+                <option ${sched && sched.timezone==='Local' ? 'selected' : ''}>Local</option>
+              </select>
+              <div class="hint" style="margin-top:6px">overlap: <select id="sched-overlap" style="background:var(--sunken);color:var(--bone);border:1px solid var(--hair);border-radius:3px;padding:2px 6px;font-size:11px"><option ${!sched || sched.overlap==='skip' ? 'selected' : ''}>skip</option><option ${sched && sched.overlap==='queue' ? 'selected' : ''}>queue</option><option ${sched && sched.overlap==='allow' ? 'selected' : ''}>allow</option></select>
+              &nbsp; <label style="font-size:11px"><input type="checkbox" id="sched-catchup" ${sched && sched.catchUp ? 'checked' : ''}/> catchUp</label></div>
+            </div>
+          </div>
+          <div style="margin-top:12px;background:var(--ink);border:1px solid var(--hair);border-radius:var(--r);padding:12px">
+            <div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:8px">Human Gate в расписании</div>
+            <label style="display:flex;gap:8px;align-items:center;font-size:12px;cursor:pointer"><input type="radio" name="sched-gate" value="autoApprove" ${!sched || sched.humanGate!=='wait' ? 'checked' : ''}/> Авто-принять (как --yes)</label>
+            <label style="display:flex;gap:8px;align-items:center;font-size:12px;cursor:pointer;margin-top:6px"><input type="radio" name="sched-gate" value="wait" ${sched && sched.humanGate==='wait' ? 'checked' : ''}/> Ждать человека — встанет в waiting</label>
+            <div id="sched-alerts" style="display:${sched && sched.humanGate==='wait' ? 'block' : 'none'};margin-top:10px">
+              <div style="font-size:11px;color:var(--ash)">Алерты когда встал на паузу:</div>
+              <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap">
+                <span class="badge">Telegram: <input id="sched-tg" placeholder="telegram_notifier / @channel" value="${esc(sched && sched.alerts && sched.alerts.on_waiting ? sched.alerts.on_waiting : 'telegram_notifier')}" style="background:transparent;border:none;color:var(--bone);width:140px;font-size:11px"/></span>
+                <span class="badge">Webhook: <input id="sched-hook" placeholder="https://..." value="${esc(sched && sched.alerts && sched.alerts.webhook ? sched.alerts.webhook : '')}" style="background:transparent;border:none;color:var(--bone);width:160px;font-size:11px"/></span>
+              </div>
+              <div class="hint">Отправится плагином: ставишь рана в wait → в Telegram прилетит «⏸ {pipeline} ждет апрува · wedra approve {run_id}»</div>
+            </div>
+          </div>
+          <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+            <button id="sched-save" class="primary" style="width:auto;padding:8px 18px">Сохранить расписание</button>
+            <span id="sched-status" class="hint" style="margin:0"></span>
+            <span class="sp"></span>
+            <span style="font-size:11px;color:var(--faint)">var/runs у тебя · next: <b id="sched-next2" style="color:var(--acc)">—</b></span>
+          </div>
+        </div>
+        <div id="sched-solo-hint" style="display:${sched ? 'none' : 'block'};margin-top:10px" class="hint">Соло: жмёшь Запустить руками или <code>wedra pipeline run</code>. Для дебага. Включи «По расписанию» — cron + human_gate + алерты появятся здесь, в YAML добавится блок <code>schedule:</code>.</div>
+      </div>
+    </div>
     <div class="card" style="margin-bottom:16px">
       <h3>DAG</h3>
       <svg id="dag"></svg>
     </div>
     <div class="card"><h3>YAML</h3><pre class="yaml">${esc(yaml)}</pre></div>`;
+  wireScheduleCard(file, yaml, sched);
   drawDag(plan.dag);
 }
 
