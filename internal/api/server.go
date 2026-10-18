@@ -401,6 +401,11 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/pipelines", s.handlePipelines)
 	mux.HandleFunc("/api/pipelines/", s.handlePipelineDetail)
 	mux.HandleFunc("/api/presets", s.handlePresets)
+	// v0.39: магазин плагинов. Витрина читает реестр и меряет готовность тем
+	// же doctor'ом, установка — реальная запись в plugins/, поэтому только POST
+	// и всегда за сессией (в publicAPI не добавляется).
+	mux.HandleFunc("/api/store", s.handleStore)
+	mux.HandleFunc("/api/store/install", s.handleStoreInstall)
 	// v0.38: загруженные артефакты для редактора. Сессия и CSRF —
 	// из обёртки Routes(), как и у остального /api/*.
 	mux.HandleFunc("/api/assets", s.handleAssets)

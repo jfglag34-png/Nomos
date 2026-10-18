@@ -52,6 +52,16 @@ func TestGUIEmbeddedStatic(t *testing.T) {
 		{"/editor/app.js", "link-ghost"},
 		{"/app.js", "api/health"},
 		{"/app.js", "api/presets"},
+		// v0.39: магазин — вкладка «Плагины» показывает и то, чего нет на диске.
+		// Пины на функции, а не на прозу: текст «не установлен» легко переписать
+		// при редизайне, а потеря функции означала бы, что установка из
+		// интерфейса молча исчезла.
+		{"/app.js", "storeRows"},
+		{"/app.js", "renderStoreCard"},
+		{"/app.js", "installStorePlugin"},
+		{"/app.js", "api/store"},
+		{"/index.html", "plug-filter-store"},
+		{"/index.html", "plug-health"},
 	}
 	for _, c := range cases {
 		resp, err := http.Get(ts.URL + c.path)

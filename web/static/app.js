@@ -661,7 +661,13 @@ function renderPipList() {
   setRailCounts(state.pipelines, null);
 }
 
-// ── вкладка «Плагины»: полный каталог, кликабельная деталка, установка зависимостей ──
+// ── вкладка «Плагины»: каталог витрины поверх установленного ──
+//
+// Два разных источника, и это не дублирование:
+//   /api/plugins — что лежит на диске, с правами и решением о доверии;
+//   /api/store   — что объявлено в реестре, с готовностью из doctor.
+// Сливаем их по имени, и ни один не подменяет другой: плагин может стоять
+// вручную и отсутствовать в реестре, а может быть в реестре и не стоять вовсе.
 async function loadPluginsTab() {
   try {
     state.pluginsFull = await api('/api/plugins');
@@ -669,43 +675,107 @@ async function loadPluginsTab() {
     $('#plug-tab-list').innerHTML = '<div class="empty">' + esc(e.message) + '</div>';
     return;
   }
+  state.installedByID = {};
+  for (const p of state.pluginsFull) state.installedByID[p.id] = p;
+
+  // Витрина по умолчанию НЕ меряет готовность: doctor опрашивает каждый плагин
+  // интерпретатором и ходит в индекс PyPI, это десятки секунд. Открытие
+  // вкладки не должно их стоить, поэтому каталог приходит лёгким, а замер —
+  // отдельной кнопкой (см. openPluginDetail).
+  try {
+    state.store = await api('/api/store');
+  } catch (e) {
+    state.store = {plugins: [], available: false, reason: e.message, status_measured: false};
+  }
   renderPluginsTabList('');
   const s = $('#plug-tab-search');
   if (s) s.oninput = () => renderPluginsTabList(s.value);
   // Фильтр держится в состоянии, а не в замыкании: переживает повторный
   // вход на вкладку и перерисовку поиска.
-  for (const [id, val] of [['#plug-filter-all', 'all'], ['#plug-filter-ok', 'ok'], ['#plug-filter-no', 'no']]) {
+  for (const [id, val] of [
+    ['#plug-filter-all', 'all'], ['#plug-filter-ok', 'ok'],
+    ['#plug-filter-no', 'no'], ['#plug-filter-store', 'store'],
+  ]) {
     const b = $(id);
     if (b) b.onclick = () => { state.plugFilter = val; renderPluginsTabList(s ? s.value : ''); };
   }
-  $('#plug-tab-count').textContent = `(${state.pluginsFull.length})`;
+  // Замер — осознанное действие, а не побочный эффект открытия вкладки: он
+  // опрашивает каждый плагин интерпретатором и ходит в индекс PyPI.
+  const hb = $('#plug-health');
+  if (hb) {
+    hb.onclick = async () => {
+      hb.disabled = true;
+      hb.textContent = 'проверяю…';
+      try {
+        state.store = await api('/api/store?status=1');
+      } catch (e) {
+        state.store = {plugins: [], available: false, reason: e.message, status_measured: true};
+      } finally {
+        hb.disabled = false;
+        hb.textContent = 'Проверить готовность';
+        renderPluginsTabList($('#plug-tab-search') ? $('#plug-tab-search').value : '');
+      }
+    };
+  }
+  $('#plug-tab-count').textContent = `(${storeRows().length})`;
   setRailCounts(state.pipelines, state.pluginsFull);
+}
+
+// storeRows — объединённый список для вкладки. Ключ слияния — имя плагина;
+// при конфликте приоритет у /api/plugins, потому что он описывает то, что
+// РЕАЛЬНО лежит на диске, а не то, что объявлено.
+function storeRows() {
+  const rows = [];
+  const seen = new Set();
+  const cat = (state.store && state.store.plugins) || [];
+  for (const s of cat) {
+    seen.add(s.name);
+    const inst = state.installedByID ? state.installedByID[s.name] : null;
+    rows.push(Object.assign({}, inst || {}, s, {name: s.name, in_registry: true}));
+  }
+  for (const p of state.pluginsFull) {
+    if (seen.has(p.id)) continue;
+    rows.push(Object.assign({}, p, {name: p.id, in_registry: false, installed: true}));
+  }
+  rows.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  return rows;
 }
 
 function renderPluginsTabList(q) {
   const needle = (q || '').trim().toLowerCase();
-  let hit = !needle ? state.pluginsFull : state.pluginsFull.filter(p =>
-    (p.id || '').toLowerCase().includes(needle) ||
+  let hit = storeRows().filter(p =>
+    (p.name || '').toLowerCase().includes(needle) ||
     (p.description || '').toLowerCase().includes(needle));
-  // Фильтр по реальному признаку из /api/plugins (trusted), а не по
-  // придуманной категории: в allow-list плагин пройдёт trust-гейт реестра,
-  // вне — нет. Счётчик показывает, сколько таких на самом деле.
+  // Фильтр по реальному признаку, а не по придуманной категории: в allow-list
+  // плагин пройдёт trust-гейт реестра, вне — нет. Счётчик показывает, сколько
+  // таких на самом деле.
   const f = state.plugFilter || 'all';
-  if (f === 'ok') hit = hit.filter(p => p.trusted);
-  else if (f === 'no') hit = hit.filter(p => !p.trusted);
+  if (f === 'ok') hit = hit.filter(p => p.installed && p.trusted);
+  else if (f === 'no') hit = hit.filter(p => p.installed && !p.trusted);
+  else if (f === 'store') hit = hit.filter(p => !p.installed);
   const c = $('#plug-filter-count');
   if (c) {
-    const total = state.pluginsFull.length;
-    const ok = state.pluginsFull.filter(p => p.trusted).length;
-    c.textContent = `${total} всего · ${ok} в allow-list`;
+    const total = storeRows().length;
+    const installed = storeRows().filter(p => p.installed).length;
+    const ok = storeRows().filter(p => p.installed && p.trusted).length;
+    c.textContent = `${total} всего · ${installed} установлено · ${ok} в allow-list`;
   }
-  for (const [id, val] of [['#plug-filter-all', 'all'], ['#plug-filter-ok', 'ok'], ['#plug-filter-no', 'no']]) {
+  for (const [id, val] of [
+    ['#plug-filter-all', 'all'], ['#plug-filter-ok', 'ok'],
+    ['#plug-filter-no', 'no'], ['#plug-filter-store', 'store'],
+  ]) {
     const b = $(id);
     if (b) b.classList.toggle('active', f === val);
   }
   $('#plug-tab-list').innerHTML = hit.map(p => {
+    // Неустановленный плагин рисуется иначе: у него нет ни доверия, ни прав,
+    // и показывать ему точку как у установленного — врать о состоянии.
+    if (!p.installed) {
+      return `<div class="pitem" data-plugin-id="${esc(p.name)}"><span class="tdot"></span> ${esc(p.name)}`
+        + ` <small>${esc(p.version || '')} · не установлен</small></div>`;
+    }
     const dot = p.trusted ? '<span class="tdot ok"></span>' : '<span class="tdot"></span>';
-    return `<div class="pitem" data-plugin-id="${esc(p.id)}">${dot} ${esc(p.id)}`
+    return `<div class="pitem" data-plugin-id="${esc(p.name)}">${dot} ${esc(p.name)}`
       + ` <small>${esc(p.version || '')}${p.trusted ? '' : ' · вне allow-list'}</small></div>`;
   }).join('') || '<div class="empty">Ничего не найдено</div>';
   $('#plug-tab-list').querySelectorAll('[data-plugin-id]').forEach(el =>
@@ -716,6 +786,18 @@ async function openPluginDetail(id) {
   document.querySelectorAll('#plug-tab-list .pitem').forEach(el =>
     el.classList.toggle('active', el.dataset.pluginId === id));
   $('#plugdetail').innerHTML = '<div class="empty">загрузка…</div>';
+
+  // Неустановленный плагин из витрины: у него нет ни прав, ни доверия, ни
+  // каталога, поэтому /api/plugins/<id> вернёт 404, а карточка из него
+  // получилась бы пустой. Рисуем карточку каталога с установкой.
+  const row = storeRows().find(p => p.name === id);
+  if (row && !row.installed) {
+    $('#plugdetail').innerHTML = renderStoreCard(row);
+    const b = $('#store-install');
+    if (b) b.onclick = () => installStorePlugin(id, b);
+    return;
+  }
+
   let d;
   try {
     d = await api('/api/plugins/' + encodeURIComponent(id));
@@ -766,6 +848,69 @@ async function openPluginDetail(id) {
     ${depsBlock}`;
   const btn = $('#deps-install');
   if (btn) btn.onclick = () => installPluginDeps(d.id, reqs, btn);
+
+  // Готовность — только если замер был запрошен явно (?status=1). Без этого
+  // молчание о неизвестном нельзя показывать как «всё готово»: витрина
+  // отвечает на вопрос «что стоит», а не «что запустится».
+  // status_measured живёт на уровне ответа, а не элемента: замер один на весь
+  // каталог, и читать его из строки плагина было бы подменой смысла.
+  const measured = state.store && state.store.status_measured;
+  const health = measured && row && row.status ? row : null;
+  if (health) {
+    const badge = health.status === 'ready'
+      ? '<span class="badge ok">готов</span>'
+      : '<span class="badge err">' + esc(health.status || 'не готов') + '</span>';
+    const hint = health.install_hint
+      ? `<div class="hint">чего не хватает: ${esc(health.install_hint)}</div>`
+      : '';
+    $('#plugdetail').insertAdjacentHTML('beforeend',
+      `<h4 style="margin-top:16px">Готовность на этой машине</h4>${badge}${hint}`);
+  }
+}
+
+// renderStoreCard — карточка плагина, которого ещё нет на диске.
+//
+// Честность здесь в том, что не показано ничего, чего нет: ни «готов», ни
+// «вне allow-list» — решать о доверии нечего, пока нет содержимого. Соблазн
+// нарисовать серую точку и тишину был бы удобен, но это ровно та ложь, от
+// которой защищает doctor: отсутствие информации неотличимо от успеха.
+function renderStoreCard(p) {
+  return `
+    <div class="dhead"><h2 class="mono">${esc(p.name)}</h2>
+      <span class="badge">не установлен</span></div>
+    <div class="sub mono dim">${esc(p.version || '')}</div>
+    <p style="line-height:1.6">${esc(p.description || 'без описания')}</p>
+    <div class="hint">источник: ${esc(p.source || '—')}</div>
+    <div class="hint">Готовность неизвестна: каталога нет на диске, и что плагину
+      нужно доустановить, видно только после установки и замера.</div>
+    <button class="primary" id="store-install">Установить</button>
+    <div class="hint" id="store-status"></div>
+    <pre class="jnl" id="store-out" style="display:none;max-height:220px"></pre>`;
+}
+
+async function installStorePlugin(name, btn) {
+  if (!confirm(`Установить плагин ${name} из реестра?`)) return;
+  const st = $('#store-status'), out = $('#store-out');
+  btn.disabled = true;
+  btn.textContent = 'ставится…';
+  try {
+    const r = await api('/api/store/install', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name}),
+    });
+    if (st) st.textContent = r.ok ? 'Готово.' : ('Ошибка: ' + (r.error || ''));
+    if (out && r.log) { out.style.display = ''; out.textContent = r.log.slice(-3000); }
+    // Перечитываем вкладку: после установки плагин должен переехать из
+    // «не установлен» в список стоящих, а решение о доверии появляется вместе
+    // с содержимым на диске.
+    if (r.ok) { await loadPluginsTab(); openPluginDetail(name); }
+  } catch (e) {
+    if (st) st.textContent = 'Ошибка: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Установить';
+  }
 }
 
 async function installPluginDeps(id, reqs, btn) {
