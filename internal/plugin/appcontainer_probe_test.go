@@ -70,6 +70,8 @@ const (
 	// Обязателен, когда передан свой блок окружения: без него CreateProcessW
 	// трактует блок как ANSI и возвращает ERROR_INVALID_PARAMETER.
 	acCreateFlagUnicodeEnvironment = 0x00000400
+	// Родной атрибут: снимает группу ALL APPLICATION PACKAGES из токена.
+	acProcThreadAttributeAllApplicationPackages = 0x0002000A
 )
 
 var (
@@ -178,11 +180,22 @@ func acRunInContainer(t *testing.T, sid *windows.SID, cmdline, cwd string, env [
 	// через NewLazySystemDLL/NewProc на этой машине давала ACCESS VIOLATION на
 	// InitializeProcThreadAttributeList, и разобраться в этом пришлось
 	// отдельной пробой — здесь вывод уже проверен.
-	al, err := windows.NewProcThreadAttributeList(1)
+	// Ровно как в эталонном примере Microsoft: два атрибута, а не один.
+	// Если список с двумя атрибутами пройдёт, а с одним — нет, то дело в
+	// конкретном атрибуте, а не в механизме списка.
+	al, err := windows.NewProcThreadAttributeList(2)
 	if err != nil {
 		return fmt.Errorf("список атрибутов: %w", err)
 	}
 	defer al.Delete()
+
+	allPackagesOptOut := uint32(1) // PROCESS_CREATION_ALL_APPLICATION_PACKAGES_OPT_OUT
+	if err := al.Update(acProcThreadAttributeAllApplicationPackages,
+		unsafe.Pointer(&allPackagesOptOut), unsafe.Sizeof(allPackagesOptOut)); err != nil {
+		fmt.Printf("[probe] ALL_APPLICATION_PACKAGES_POLICY отвергнут: %v\n", err)
+	} else {
+		fmt.Printf("[probe] второй атрибут добавлен\n")
+	}
 
 	// В КУЧЕ, не на стеке. UpdateProcThreadAttribute запоминает УКАЗАТЕЛЬ на
 	// значение, и стек Go переезжает при росте: между Update и CreateProcessW
