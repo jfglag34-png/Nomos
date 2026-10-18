@@ -507,7 +507,7 @@ func (s *Server) handlePluginTest(w http.ResponseWriter, r *http.Request) {
 		// Потолок не «успех»: возвращаем ошибку с меткой, иначе страница
 		// показала бы зелёную строку для прогона, который не закончился.
 		writeJSON(w, http.StatusGatewayTimeout, map[string]interface{}{
-			"ok": false, "timeout": true,
+			"ok": false, "timeout": true, "code": "E_TEST_TIMEOUT",
 			"error": "тесты не уложились в отведённое время — результат НЕ получен",
 		})
 		return
