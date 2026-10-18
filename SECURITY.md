@@ -348,19 +348,55 @@ replaces them where they were wrong or silent.
   With `PROTECTED` the acting user is locked out of the directory, which is the
   intended property, and it is also why a probe must keep the user SID if the
   parent process still needs to write there.
-- `windows.NewProcThreadAttributeList` creates a list; `sizeof(STARTUPINFOEX)`
-  is 104 as expected.
+- `windows.NewProcThreadAttributeList` creates a list.
 
-**Does not work, measured on this host — this is the blocker:**
+**Root cause of `ERROR_INVALID_PARAMETER`, found and fixed:**
 
-- `CreateProcessW` with `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES` returns
-  `ERROR_INVALID_PARAMETER`. The same executable launches through the same
-  call with no attribute list, so the attribute is what is rejected. The cause
-  was **not** isolated: ruled out by measurement were the flag arithmetic
-  (`CREATE_UNICODE_ENVIRONMENT` added), the environment block, the working
-  directory, `STARTUPINFOEX.cb`, the profile SID, and moving `SECURITY_CAPABILITIES`
-  off the Go stack onto the heap. The probe skips rather than fails, so CI
-  stays green and the blocker stays written down.
+The Go struct for `STARTUPINFOW`/`STARTUPINFOEXW` was **missing the `lpReserved`
+field** (`LPWSTR`) that sits between `cb` and `lpDesktop`:
+
+```c
+typedef struct _STARTUPINFOW {
+  DWORD  cb;
+  LPWSTR lpReserved;   /* was absent from the Go mirror */
+  LPWSTR lpDesktop;
+```
+
+Every field after `cb` was therefore shifted 8 bytes down. `lpAttributeList`
+landed at offset 96 instead of 104. `sizeof` came out as 104 — which is a
+perfectly valid `STARTUPINFO` size, so `CreateProcessW` did **not** reject `cb`;
+but with `EXTENDED_STARTUPINFO_PRESENT` set it read `lpAttributeList` from
+offset 104, past the end of what it had been handed, and answered
+`ERROR_INVALID_PARAMETER`.
+
+Measured offsets, taken from a native C reference built here with MinGW-w64:
+
+| field | C | Go before the fix |
+|---|---|---|
+| `lpReserved2` | 72 | 64 |
+| `hStdInput` | 80 | 72 |
+| `hStdError` | 96 | 88 |
+| `lpAttributeList` | 104 | 96 |
+| `sizeof(STARTUPINFOEX)` | 112 | 104 |
+
+With the field restored, `CreateProcessW` creates the AppContainer process.
+
+**Still open, measured on this host:** the containerised child exits with code
+5. The interpreter's own directory carries no AppContainer grant, so the child
+cannot load it. Granting that directory is the next step; it was not done
+unilaterally because `acGrant` writes a *protected* DACL and would replace the
+existing ACL on a real Python installation.
+
+The probe skips rather than fails, so CI stays green and the blocker stays
+written down.
+
+Ruled out by measurement along the way, so they need not be re-tested: flag
+arithmetic (`CREATE_UNICODE_ENVIRONMENT` added), the environment block, the
+working directory, the profile SID, moving `SECURITY_CAPABILITIES` off the Go
+stack onto the heap, `CreateProcessAsUser` instead of `CreateProcessW` (also
+returns `ERROR_INVALID_PARAMETER`), and the capacity of the attribute list
+(`InitializeProcThreadAttributeList` returns 48/72/96 bytes for 1/2/3
+attributes, as it should).
 
 **Two traps that cost time and look like anything else:**
 
