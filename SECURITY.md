@@ -326,8 +326,60 @@ bound CPU, memory and process count and nothing else.
 Windows therefore stays fail-closed: the backend is unwritten and
 `sandbox_other.go` returns `ErrSandboxUnsupported`. The reason is now "not
 implemented", not "the platform forbids it". The measurements above are not
-reproducible from this tree — the probe and its Go prototype are not committed —
-so treat them as recorded findings, not as a test.
+reproducible from this tree — so they have been re-measured, and what follows
+replaces them where they were wrong or silent.
+
+### Re-measured (Windows, non-elevated, reproducible from this tree)
+
+`internal/plugin/appcontainer_probe_test.go`, opt-in via
+`go test -tags appcontainer ./internal/plugin -run TestAppContainerProbe -v`.
+
+**Works, measured on this host:**
+
+- `CreateAppContainerProfile` succeeds for a non-elevated process.
+- `SetNamedSecurityInfo` succeeds — but only as
+  `DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION`.
+  `PROTECTED_DACL_SECURITY_INFORMATION` **alone** returns
+  `ERROR_ACCESS_DENIED`, and that reads as "the platform forbids ACL writes".
+  It is a modifier, not a request; the earlier text in this file mentioned it
+  without saying it must be combined.
+- The ACL must contain `SYSTEM` + `Administrators` + the container SID. An ACL
+  with only the target entry is rejected with the same `ERROR_ACCESS_DENIED`.
+  With `PROTECTED` the acting user is locked out of the directory, which is the
+  intended property, and it is also why a probe must keep the user SID if the
+  parent process still needs to write there.
+- `windows.NewProcThreadAttributeList` creates a list; `sizeof(STARTUPINFOEX)`
+  is 104 as expected.
+
+**Does not work, measured on this host — this is the blocker:**
+
+- `CreateProcessW` with `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES` returns
+  `ERROR_INVALID_PARAMETER`. The same executable launches through the same
+  call with no attribute list, so the attribute is what is rejected. The cause
+  was **not** isolated: ruled out by measurement were the flag arithmetic
+  (`CREATE_UNICODE_ENVIRONMENT` added), the environment block, the working
+  directory, `STARTUPINFOEX.cb`, the profile SID, and moving `SECURITY_CAPABILITIES`
+  off the Go stack onto the heap. The probe skips rather than fails, so CI
+  stays green and the blocker stays written down.
+
+**Two traps that cost time and look like anything else:**
+
+- `os/exec` cannot express this at all. `syscall.StartProcess` on Windows calls
+  `newProcThreadAttributeList(2)` and supports only
+  `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS`; there is no `SysProcAttr` field for
+  `SECURITY_CAPABILITIES`. A backend needs its own `CreateProcessW` path and
+  therefore its own plumbing for stdio, which is a much larger change than
+  adding one platform file.
+- Store app execution aliases (here the `python` on `PATH` resolves to
+  `C:\Program Files\PyManager\python.exe`) cannot be launched through
+  `CreateProcessW`; they activate through a different mechanism and the call
+  returns `ERROR_INVALID_PARAMETER`. Measured against the real interpreter
+  under `%LOCALAPPDATA%\Python`, it launches normally.
+
+A hand-rolled `NewLazySystemDLL(...).NewProc("InitializeProcThreadAttributeList")
+.Call(...)` also faulted with an access violation on this host, while the same
+operation through `windows.NewProcThreadAttributeList` succeeds. Use the
+package's constructor; do not hand-roll this path.
 
 ### What a Windows user can do today: trust their own code
 
