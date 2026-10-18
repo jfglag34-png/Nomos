@@ -13,7 +13,7 @@ author: "community · wedra showcase (OSINT)"
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; пакет you-get — отдельно (pip install you-get)
+  requires: [you-get==0.4.1743]  # донор объявлен: ставится вместе с плагином, отдельно не нужен
 
 input:
   url:

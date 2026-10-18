@@ -11,7 +11,7 @@ author: "community · wedra showcase (OSINT)"
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; пакет Sublist3r — отдельно (pip install Sublist3r)
+  requires: [Sublist3r==1.0]  # донор объявлен: ставится вместе с плагином, отдельно не нужен
 
 input:
   domain:

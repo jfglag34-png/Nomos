@@ -13,7 +13,7 @@ author: "community · wedra showcase (OSINT)"
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; SDK ставится отдельно (pip install shodan)
+  requires: [shodan==1.31.0]  # донор объявлен: ставится вместе с плагином, отдельно не нужен
 
 input:
   ip:

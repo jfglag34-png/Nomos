@@ -13,7 +13,7 @@ author: "community · wedra showcase (OSINT)"
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; XSStrike — отдельно (pip install xsstrike)
+  requires: [xsstrike==3.2.2]  # донор объявлен: ставится вместе с плагином, отдельно не нужен
 
 input:
   url:

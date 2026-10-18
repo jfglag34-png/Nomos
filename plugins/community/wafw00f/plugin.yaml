@@ -11,7 +11,7 @@ author: "community · wedra showcase (web security)"
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; пакет wafw00f — отдельно (pip install wafw00f)
+  requires: [wafw00f==2.4.2]  # донор объявлен: ставится вместе с плагином, отдельно не нужен
 
 input:
   url:

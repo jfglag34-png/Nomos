@@ -11,7 +11,7 @@ author: "community · wedra showcase (OSINT)"
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; пакет sherlock-project — отдельно
+  requires: [sherlock-project==0.16.2]  # донор объявлен: ставится вместе с плагином, отдельно не нужен
 
 input:
   username:

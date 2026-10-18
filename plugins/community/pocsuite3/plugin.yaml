@@ -11,7 +11,7 @@ author: "community · wedra showcase (web security)"
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; пакет pocsuite3 — отдельно (pip install pocsuite3)
+  requires: [pocsuite3==2.1.0]  # донор объявлен: ставится вместе с плагином, отдельно не нужен
 
 input:
   url:

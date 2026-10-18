@@ -13,7 +13,7 @@ author: "community · wedra showcase (OSINT)"
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; пакет git-dumper — отдельно (pip install git-dumper)
+  requires: [git-dumper==1.0.9]  # донор объявлен: ставится вместе с плагином, отдельно не нужен
 
 input:
   url:

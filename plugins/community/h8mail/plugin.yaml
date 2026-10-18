@@ -12,7 +12,7 @@ author: "community · wedra showcase (OSINT)"
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; пакет h8mail — отдельно
+  requires: [h8mail==2.5.6]  # донор объявлен: ставится вместе с плагином, отдельно не нужен
 
 input:
   target:

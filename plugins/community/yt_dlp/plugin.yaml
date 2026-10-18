@@ -14,7 +14,7 @@ author: "community · wedra showcase (OSINT)"
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; пакет yt-dlp — отдельно (pip install yt-dlp)
+  requires: [yt-dlp==2026.8.19]  # донор объявлен: ставится вместе с плагином, отдельно не нужен
 
 input:
   url:

@@ -11,7 +11,7 @@ author: "community · wedra showcase (OSINT)"
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; пакет sslyze — отдельно (pip install sslyze)
+  requires: [sslyze==6.3.1]  # донор объявлен: ставится вместе с плагином, отдельно не нужен
 
 input:
   target:

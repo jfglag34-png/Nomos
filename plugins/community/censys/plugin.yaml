@@ -13,7 +13,7 @@ author: "community · wedra showcase (OSINT)"
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; SDK ставится отдельно (pip install censys)
+  requires: [censys==2.3.0]  # донор объявлен: ставится вместе с плагином, отдельно не нужен
 
 input:
   target:

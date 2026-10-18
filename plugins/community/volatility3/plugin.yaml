@@ -12,7 +12,7 @@ author: "community · wedra showcase (forensics)"
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; пакет volatility3 — отдельно (pip install volatility3)
+  requires: [volatility3==2.28.2]  # донор объявлен: ставится вместе с плагином, отдельно не нужен
 
 input:
   image:

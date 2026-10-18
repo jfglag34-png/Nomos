@@ -12,7 +12,7 @@ author: "community · wedra showcase (reverse engineering)"
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; binwalk v3 — отдельно (pip install binwalk)
+  requires: [binwalk==2.1.0]  # донор объявлен: ставится вместе с плагином, отдельно не нужен
 
 input:
   file:

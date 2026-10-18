@@ -18,7 +18,7 @@ author: "community · wedra showcase (OSINT)"
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; пакет instaloader — отдельно (pip install instaloader)
+  requires: [instaloader==4.15.4]  # донор объявлен: ставится вместе с плагином, отдельно не нужен
 
 input:
   profile:

@@ -14,7 +14,7 @@ author: "community · wedra showcase (threat intel)"
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; SDK ставится отдельно (pip install vt-py)
+  requires: [vt-py==0.22.0]  # донор объявлен: ставится вместе с плагином, отдельно не нужен
 
 input:
   indicator:

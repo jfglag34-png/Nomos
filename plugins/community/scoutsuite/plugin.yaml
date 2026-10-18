@@ -15,7 +15,7 @@ author: "community · wedra showcase (cloud audit)"
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; пакет scoutsuite — отдельно
+  requires: [scoutsuite==5.14.0]  # донор объявлен: ставится вместе с плагином, отдельно не нужен
 
 input:
   provider:

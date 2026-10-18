@@ -13,7 +13,7 @@ author: "community · wedra showcase (OSINT)"
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; пакет gallery-dl — отдельно (pip install gallery-dl)
+  requires: [gallery-dl==1.32.17]  # донор объявлен: ставится вместе с плагином, отдельно не нужен
 
 input:
   url:
