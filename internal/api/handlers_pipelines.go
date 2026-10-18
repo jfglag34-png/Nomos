@@ -2,15 +2,15 @@ package api
 
 import (
 	"encoding/json"
+	"github.com/wykserdex/wedra/internal/journal"
+	"github.com/wykserdex/wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/registry"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"github.com/wykserdex/wedra/internal/journal"
-	"github.com/wykserdex/wedra/internal/pipeline"
-	"github.com/wykserdex/wedra/internal/registry"
 )
 
 func (s *Server) handlePipelines(w http.ResponseWriter, r *http.Request) {
@@ -271,4 +271,3 @@ func runSummary(dir string) map[string]interface{} {
 	}
 	return acc.summary(dir, res.Total, res.Truncated)
 }
-

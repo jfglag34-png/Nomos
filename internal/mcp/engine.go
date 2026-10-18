@@ -176,4 +176,3 @@ func (m *multiEngine) LoadManifest(ref string) (*pipeline.Manifest, error) {
 	}
 	return nil, lastErr
 }
-

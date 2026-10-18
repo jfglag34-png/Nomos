@@ -1,18 +1,18 @@
 package mcp
 
 import (
-	"github.com/wykserdex/wedra/internal/gate"
-	"github.com/wykserdex/wedra/internal/execution"
-	"math"
-	"sort"
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-	"time"
+	"github.com/wykserdex/wedra/internal/execution"
+	"github.com/wykserdex/wedra/internal/gate"
 	"github.com/wykserdex/wedra/internal/pipeline"
 	"github.com/wykserdex/wedra/internal/plugin"
+	"math"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
 )
 
 func (s *Server) toolListPlugins(args map[string]interface{}) (string, bool, *RPCError) {
@@ -451,4 +451,3 @@ func (s *Server) pruneRunsLocked() {
 		}
 	}
 }
-

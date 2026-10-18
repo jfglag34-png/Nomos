@@ -2,14 +2,14 @@ package api
 
 import (
 	"encoding/json"
+	"github.com/wykserdex/wedra/internal/buildinfo"
+	"github.com/wykserdex/wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/plugin"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"github.com/wykserdex/wedra/internal/buildinfo"
-	"github.com/wykserdex/wedra/internal/pipeline"
-	"github.com/wykserdex/wedra/internal/plugin"
 )
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -220,4 +220,3 @@ func (s *Server) handlePluginInstallDeps(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }
-

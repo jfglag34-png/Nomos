@@ -890,14 +890,14 @@ func TestDoctorRealRepoDonorNamesHaveNoGarbage(t *testing.T) {
 // readmeonly НЕ в списке, а really_unverified — да.
 func TestDoctorListsUnverifiedDonors(t *testing.T) {
 	root := doctorFixture(t, map[string]string{
-		"checked/plugin.yaml":         doctorManifestText("checked", "Ставится: pip install some-tool", nil),
-		"checked/main.py":             "import json\nprint('{}')\n",
-		"readmeonly/plugin.yaml":      doctorManifestText("readmeonly", "Плагин без упоминания донора", nil),
-		"readmeonly/main.py":          "import json\nprint('{}')\n",
-		"readmeonly/README.md":        "Установка внешнего инструмента: `pip install other-tool`.\n",
+		"checked/plugin.yaml":           doctorManifestText("checked", "Ставится: pip install some-tool", nil),
+		"checked/main.py":               "import json\nprint('{}')\n",
+		"readmeonly/plugin.yaml":        doctorManifestText("readmeonly", "Плагин без упоминания донора", nil),
+		"readmeonly/main.py":            "import json\nprint('{}')\n",
+		"readmeonly/README.md":          "Установка внешнего инструмента: `pip install other-tool`.\n",
 		"really_unverified/plugin.yaml": doctorManifestText("really_unverified", "Плагин без упоминания донора", nil),
-		"really_unverified/main.py":   "import json\nprint('{}')\n",
-		"really_unverified/README.md": "Установка: pip install https://example.com/pkg.tar.gz\n",
+		"really_unverified/main.py":     "import json\nprint('{}')\n",
+		"really_unverified/README.md":   "Установка: pip install https://example.com/pkg.tar.gz\n",
 	})
 	rep := Run(root)
 
@@ -921,11 +921,11 @@ func TestDoctorListsUnverifiedDonors(t *testing.T) {
 // появляется только если есть плагин без pip install нигде.
 func TestDoctorHumanOutputHasHonestyNote(t *testing.T) {
 	root := doctorFixture(t, map[string]string{
-		"checked/plugin.yaml":       doctorManifestText("checked", "Ставится: pip install some-tool", nil),
-		"checked/main.py":           "import json\nprint('{}')\n",
-		"unverified/plugin.yaml":    doctorManifestText("unverified", "Плагин без упоминания донора", nil),
-		"unverified/main.py":        "import json\nprint('{}')\n",
-		"unverified/README.md":      "Установка: pip install https://example.com/pkg.tar.gz\n",
+		"checked/plugin.yaml":    doctorManifestText("checked", "Ставится: pip install some-tool", nil),
+		"checked/main.py":        "import json\nprint('{}')\n",
+		"unverified/plugin.yaml": doctorManifestText("unverified", "Плагин без упоминания донора", nil),
+		"unverified/main.py":     "import json\nprint('{}')\n",
+		"unverified/README.md":   "Установка: pip install https://example.com/pkg.tar.gz\n",
 	})
 	rep := Run(root)
 	if len(rep.UnverifiedDonors) == 0 {

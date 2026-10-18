@@ -302,7 +302,7 @@ func donorFromFiles(dir string) (string, bool) {
 	}
 	return "", false
 }
-//
+
 // donorInPath — есть ли такой донор в PATH.
 //
 // exec.LookPath, а не обход PATH вручную: он учитывает PATHEXT на Windows, то

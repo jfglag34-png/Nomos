@@ -1,12 +1,12 @@
 package mcp
 
 import (
-	"github.com/wykserdex/wedra/internal/buildinfo"
 	"context"
 	"encoding/json"
+	"github.com/wykserdex/wedra/internal/buildinfo"
+	"github.com/wykserdex/wedra/internal/pipeline"
 	"strings"
 	"sync"
-	"github.com/wykserdex/wedra/internal/pipeline"
 )
 
 func (s *Server) Serve(t *Transport) error {

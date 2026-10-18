@@ -1,12 +1,12 @@
 package mcp
 
 import (
-	"net"
 	"fmt"
+	"github.com/wykserdex/wedra/internal/pipeline"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
-	"github.com/wykserdex/wedra/internal/pipeline"
 )
 
 func (s *Server) checkPipelineSafety(pf *pipeline.PipelineFile) error {

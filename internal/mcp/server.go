@@ -275,4 +275,3 @@ func permissionsJSON(m *pipeline.Manifest) map[string]interface{} {
 		"network": network, "filesystem": m.Permissions.Filesystem, "secrets": m.Permissions.Secrets,
 	}
 }
-

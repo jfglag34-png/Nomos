@@ -4,17 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/wykserdex/wedra/internal/core"
+	"github.com/wykserdex/wedra/internal/execution"
+	"github.com/wykserdex/wedra/internal/gate"
+	"github.com/wykserdex/wedra/internal/journal"
+	"github.com/wykserdex/wedra/internal/pipeline"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"github.com/wykserdex/wedra/internal/core"
-	"github.com/wykserdex/wedra/internal/execution"
-	"github.com/wykserdex/wedra/internal/gate"
-	"github.com/wykserdex/wedra/internal/journal"
-	"github.com/wykserdex/wedra/internal/pipeline"
 )
 
 func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {

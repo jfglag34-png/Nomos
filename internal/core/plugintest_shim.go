@@ -1,8 +1,8 @@
 package core
 
 import (
-	pt "github.com/wykserdex/wedra/internal/plugintest"
 	stdctx "context"
+	pt "github.com/wykserdex/wedra/internal/plugintest"
 )
 
 // Shim: public API plugintest остаётся через core

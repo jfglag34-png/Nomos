@@ -295,7 +295,7 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 		if st.Plugin == "core/text_stats" {
 			// синтетический манифест как в plugin/registry.go
 			m := &Manifest{
-				ID: "core/text_stats",
+				ID:    "core/text_stats",
 				Input: map[string]Port{"text": {From: "input.text", Type: "string", Format: "text", Optional: true}},
 				Output: map[string]Port{
 					"lines":        {Type: "number"},
@@ -313,14 +313,18 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 				}
 			}
 			for b, src := range st.Bind {
-				if isContextRef(src) { continue }
+				if isContextRef(src) {
+					continue
+				}
 				v.err(E_BIND_SOURCE_INVALID, st.ID, b, "pipeline.steps."+st.ID+".bind."+b, "укажите input.<поле> или steps.<шаг>.<выход>", nil, "шаг %s, порт %s: bind = %q не является ссылкой на контекст", st.ID, b, src)
 			}
 			// check input binding exists
 			for portName, port := range m.Input {
 				srcPath := PortSource(portName, port, st)
 				if srcPath == "" {
-					if port.Optional { continue }
+					if port.Optional {
+						continue
+					}
 					cands := compatibleOutputs(prior, port.Type, port.Format)
 					cands = append(cands, inputFieldList(pf)...)
 					v.err(E_PORT_UNBOUND, st.ID, portName, "pipeline.steps."+st.ID+".bind."+portName, "привяжите порт через bind", &Fix{Op: "bind", Target: "steps." + st.ID + "." + portName, Candidates: cands}, "шаг %s, порт %s: нет привязки", st.ID, portName)
@@ -665,7 +669,7 @@ func isValidCron(cron string) bool {
 			return false
 		}
 		for _, ch := range p {
-			if !(ch >= '0' && ch <= '9' || ch == '*' || ch == '/' || ch == '-' || ch == ',' ) {
+			if !(ch >= '0' && ch <= '9' || ch == '*' || ch == '/' || ch == '-' || ch == ',') {
 				return false
 			}
 		}

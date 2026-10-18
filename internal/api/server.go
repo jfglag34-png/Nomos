@@ -1,7 +1,6 @@
 package api
 
 import (
-	"time"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/wykserdex/wedra/internal/core"
 	"github.com/wykserdex/wedra/internal/gate"
@@ -474,4 +474,3 @@ func (s *Server) Routes() http.Handler {
 		mux.ServeHTTP(w, r)
 	})
 }
-

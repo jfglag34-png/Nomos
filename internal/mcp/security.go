@@ -2,10 +2,10 @@ package mcp
 
 import (
 	"fmt"
+	"github.com/wykserdex/wedra/internal/pipeline"
 	"os"
 	"path/filepath"
 	"strings"
-	"github.com/wykserdex/wedra/internal/pipeline"
 )
 
 func (s *Server) checkPluginRef(ref string) error {
@@ -142,4 +142,3 @@ func fileRefSourceDynamic(pf *pipeline.PipelineFile, st *pipeline.Step, source s
 	}
 	return false
 }
-

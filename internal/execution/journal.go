@@ -94,4 +94,3 @@ func finish(j *journal.Journal, prior int, kv map[string]interface{}) error {
 	j.Event("run_end", kv)
 	return journalWriteError(j)
 }
-

@@ -8,16 +8,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"strings"
-	"time"
 	"github.com/wykserdex/wedra/internal/gate"
 	"github.com/wykserdex/wedra/internal/journal"
 	"github.com/wykserdex/wedra/internal/pipeline"
 	"github.com/wykserdex/wedra/internal/plugin"
 	"github.com/wykserdex/wedra/internal/runctx"
+	"os"
+	"strings"
+	"time"
 )
-
 
 type RunOptions struct {
 	Yes     bool
