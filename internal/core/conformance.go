@@ -120,7 +120,29 @@ func RunConformance(fixturesDir string) ConformanceReport {
 			Details: "манифесты прочитаны и провалидированы; исполнение — в чеках ниже и в fixture_coverage",
 		})
 	} else {
-		checks = append(checks, confFail("fixture_manifests_loaded", strings.Join(fixtureErrors, "; ")))
+		details := strings.Join(fixtureErrors, "; ")
+		if details == "" {
+			// Каталог читается, но фикстур в нём нет: без объяснения отчёт
+			// показывал бы провал с пустой причиной.
+			details = "в каталоге " + fixturesDir + " нет ни одной фикстуры (plugin.yaml)"
+		}
+		checks = append(checks, confFail("fixture_manifests_loaded", details))
+	}
+
+	// Исполнять нечего — и продолжать нельзя: каждый поведенческий чек ждёт
+	// результат запуска фикстуры, а результата не будет. До этой проверки отчёт
+	// умирал паникой (nil dereference) на первом же чеке; воспроизводилось на
+	// `plugin test <плагин> --conformance`, где позиционный аргумент — это
+	// каталог фикстур, а не плагин. Одна причина внятнее дюжины одинаковых
+	// провалов «<фикстура> не загрузился».
+	if readErr != nil || loadedFixtures == 0 {
+		reason := "в каталоге фикстур " + fixturesDir + " нет ни одной фикстуры (plugin.yaml)"
+		if readErr != nil {
+			reason = fmt.Sprintf("каталог фикстур %q не читается: %v", fixturesDir, readErr)
+		}
+		checks = append(checks, confFail("fixtures_dir",
+			reason+"; в режиме --conformance позиционный аргумент и --fixtures задают каталог фикстур, а не сам плагин"))
+		return ConformanceReport{OK: false, Checks: checks}
 	}
 
 	// executed — фикстуры, которые батарея действительно запускала. Отчёт
@@ -135,7 +157,12 @@ func RunConformance(fixturesDir string) ConformanceReport {
 	fixtureRun := func(name, input string, timeout time.Duration) (*pipeline.Manifest, *plugin.ExecResult, ConformanceCheck) {
 		m := load(name)
 		if m == nil {
-			return nil, nil, confFail("", name+" не загрузился")
+			// Имя чека обязательно: вызывающие отличают «провал» от «проверки
+			// не было» по bad.Name != "". Пустое имя означало «проверки нет»,
+			// а вместе с ним наружу уходил nil-результат — и вызов падал на
+			// !res.Platform. Отсутствующая фикстура — это провал, и он должен
+			// быть назван, а не проглочен.
+			return nil, nil, confFail(name+"_fixture", name+" не загрузился")
 		}
 		executed[name] = true
 		return m, plugin.ExecWithEnvCtx(fixtureCtx, m, []byte(input), timeout, []string{"WEDRA_NETWORK=deny"}), ConformanceCheck{}
