@@ -1,6 +1,6 @@
 # Каждый одобренный release tag = GitHub Release с бинарниками и conformance asset.
 # Это то, что получают пользователи: скачать и запустить без Go.
-name: release
+name: Nomos release
 on:
   workflow_call:
 
@@ -63,21 +63,22 @@ jobs:
               ext=""
               [ "$os" = "windows" ] && ext=".exe"
               echo "== $os/$arch (Version=$VER)"
+              GOOS=$os GOARCH=$arch go build -ldflags="$LDFLAGS" -o "dist/nomos-${os}-${arch}${ext}" ./cmd/nomos
               GOOS=$os GOARCH=$arch go build -ldflags="$LDFLAGS" -o "dist/wedra-${os}-${arch}${ext}" ./cmd/wedra
               GOOS=$os GOARCH=$arch go build -ldflags="$LDFLAGS" -o "dist/tool-${os}-${arch}${ext}" ./cmd/tool
             done
           done
           # v0.8: desktop-exe (Windows: окно WebView2, чистый Go)
           for arch in amd64 arm64; do
-            GOOS=windows GOARCH=$arch go build -ldflags="$LDFLAGS" -o "dist/wedragui-windows-${arch}.exe" ./cmd/wedragui
+            GOOS=windows GOARCH=$arch go build -ldflags="$LDFLAGS" -o "dist/nomos-gui-windows-${arch}.exe" ./cmd/wedragui
           done
           mkdir -p dist/conformance-package/conformance/fixtures
           cp conformance/README.md conformance/manifest.json dist/conformance-package/conformance/
           cp -R conformance/fixtures/v0.2 dist/conformance-package/conformance/fixtures/
-          (cd dist/conformance-package && zip -qr "../wedra-conformance-v${VER}.zip" .)
+          (cd dist/conformance-package && zip -qr "../nomos-conformance-v${VER}.zip" .)
           smoke_dir=$(mktemp -d)
-          unzip -q "dist/wedra-conformance-v${VER}.zip" -d "$smoke_dir"
-          ./dist/wedra-linux-amd64 plugin test --conformance --fixtures="$smoke_dir/conformance/fixtures/v0.2" --json
+          unzip -q "dist/nomos-conformance-v${VER}.zip" -d "$smoke_dir"
+          ./dist/nomos-linux-amd64 plugin test --conformance --fixtures="$smoke_dir/conformance/fixtures/v0.2" --json
           rm -rf "$smoke_dir" dist/conformance-package
       - name: generate SBOM
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
@@ -88,7 +89,7 @@ jobs:
           upload-artifact: false
           upload-release-assets: false
       - name: checksums
-        run: sha256sum dist/wedra-* dist/tool-* dist/wedragui-* dist/sbom.spdx.json > dist/SHA256SUMS
+        run: sha256sum dist/nomos-* dist/wedra-* dist/tool-* dist/sbom.spdx.json > dist/SHA256SUMS
       # Подпись без единого секрета. cosign берёт OIDC-токен раннера
       # (`id-token: write` в permissions этого джоба — он и был нужен для
       # attest-build-provenance), Fulcio выдаёт на него короткоживущий

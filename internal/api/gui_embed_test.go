@@ -18,8 +18,8 @@ func TestGUIEmbeddedStatic(t *testing.T) {
 		path string
 		want string // подстрока, обязана быть в теле
 	}{
-		{"/", "WEDRA"},
-		{"/index.html", "WEDRA"},
+		{"/", "Nomos"},
+		{"/index.html", "Nomos"},
 		{"/editor/", "редактор"},
 		{"/editor/app.js", "pluginNetworkHint"},
 		// Подсказку о том, как связывать шаги, легко потерять при рефакторинге

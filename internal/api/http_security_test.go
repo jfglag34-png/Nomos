@@ -501,7 +501,7 @@ func TestOnePageScenarioStillWorks(t *testing.T) {
 	}
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if resp.StatusCode != 200 || !strings.Contains(string(body), "WEDRA") {
+	if resp.StatusCode != 200 || !strings.Contains(string(body), "Nomos") {
 		t.Fatalf("GET / без сессии: code=%d, тело=%q", resp.StatusCode, truncate(string(body)))
 	}
 	resp, err = client.Get(ts.URL + "/editor/")

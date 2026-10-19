@@ -312,7 +312,7 @@ func (s *Server) handleCall(call *inflightCall, req *Request) *Response {
 		return &Response{Result: map[string]interface{}{
 			"protocolVersion": version,
 			"capabilities":    map[string]interface{}{"tools": map[string]interface{}{}},
-			"serverInfo":      map[string]interface{}{"name": "wedra", "version": buildinfo.Resolve()},
+			"serverInfo":      map[string]interface{}{"name": "nomos", "version": buildinfo.Resolve()},
 		}}
 	case "ping":
 		return &Response{Result: map[string]interface{}{}}

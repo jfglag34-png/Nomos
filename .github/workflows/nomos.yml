@@ -1,0 +1,53 @@
+name: Nomos reliability
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reliability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.9'
+      - name: Module integrity and formatting
+        run: |
+          go mod verify
+          test -z "$(gofmt -l cmd/nomos internal/cli/nomos*.go internal/cli/fleet*.go internal/mcp/compose*.go)"
+      - name: Durable queue, SIGKILL recovery, idempotency and outbox (race, repeated)
+        run: go test -race ./internal/cli -run 'TestDurable|TestTrigger|TestFleet|TestNomos' -count=10 -timeout=5m
+      - name: MCP composer and protocol contracts
+        run: go test -race ./internal/mcp -count=1 -timeout=5m
+      - name: Build and smoke Nomos and compatibility CLI
+        run: |
+          mkdir -p artifacts
+          CGO_ENABLED=0 go build -trimpath -o artifacts/nomos-linux-amd64 ./cmd/nomos
+          go build -o artifacts/wedra-compat ./cmd/wedra
+          artifacts/nomos-linux-amd64 version | grep -F Nomos
+          artifacts/nomos-linux-amd64 --help | grep -F 'nomos fleet'
+          artifacts/nomos-linux-amd64 demo --runs-dir="$RUNNER_TEMP/nomos-demo"
+          artifacts/wedra-compat version
+          (cd artifacts && sha256sum nomos-linux-amd64 > SHA256SUMS)
+      - name: Verify both deployment units
+        run: |
+          sudo ln -sf /bin/true /usr/local/bin/nomos
+          sudo ln -sf /bin/true /usr/local/bin/wedra
+          sudo useradd --system --home-dir /var/lib/wedra --shell /usr/sbin/nologin wedra || true
+          sudo mkdir -p /var/lib/wedra /etc/wedra
+          systemd-analyze verify deploy/fleet/nomos-fleet.service deploy/fleet/wedra-fleet.service
+      - name: Upload tested Linux build (not an official release)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nomos-linux-amd64-${{ github.sha }}
+          path: |
+            artifacts/nomos-linux-amd64
+            artifacts/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14

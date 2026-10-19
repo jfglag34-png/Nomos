@@ -1,4 +1,4 @@
-# Образ WEDRA для серверного развёртывания.
+# Образ Nomos (потомок WEDRA) для серверного развёртывания.
 #
 # Собирается из исходников, а не из релизного бинаря: релиз собирается
 # динамически (CGO по умолчанию), и такой бинарь требует glibc той версии, на
@@ -40,7 +40,7 @@ COPY . .
 ARG VERSION=dev
 RUN CGO_ENABLED=0 go build \
       -ldflags="-s -w -X github.com/wykserdex/wedra/internal/buildinfo.Version=${VERSION}" \
-      -o /out/wedra ./cmd/wedra && \
+      -o /out/nomos ./cmd/nomos && \
     CGO_ENABLED=0 go build \
       -ldflags="-s -w -X github.com/wykserdex/wedra/internal/buildinfo.Version=${VERSION}" \
       -o /out/tool ./cmd/tool
@@ -72,7 +72,8 @@ RUN apt-get update && \
 RUN groupadd --system --gid 10001 wedra && \
     useradd --system --uid 10001 --gid wedra --home-dir /data --shell /usr/sbin/nologin wedra
 
-COPY --from=build /out/wedra /usr/local/bin/wedra
+COPY --from=build /out/nomos /usr/local/bin/nomos
+RUN ln -s /usr/local/bin/nomos /usr/local/bin/wedra
 COPY --from=build /out/tool /usr/local/bin/tool
 
 # Каталоги данных и доверия. Права выданы владельцу: том монтируется поверх, и
@@ -95,7 +96,7 @@ VOLUME ["/data", "/etc/wedra"]
 # По умолчанию — планировщик. Адрес раздачи ссылок одобрения: по умолчанию
 # локальный, и для доступа с другой машины его надо переопределить
 # (WEDRA_APPROVE_URL), иначе ссылка уйдёт туда, куда человек не достанется.
-ENTRYPOINT ["/usr/local/bin/wedra"]
+ENTRYPOINT ["/usr/local/bin/nomos"]
 CMD ["daemon", \
      "--plugins=/data/plugins", \
      "--pipelines=/data/examples", \
@@ -107,7 +108,7 @@ FROM runtime AS gui
 
 USER wedra
 EXPOSE 8765
-ENTRYPOINT ["/usr/local/bin/wedra"]
+ENTRYPOINT ["/usr/local/bin/nomos"]
 CMD ["gui", \
      "--plugins=/data/plugins", \
      "--pipelines=/data/examples", \

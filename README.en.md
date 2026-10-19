@@ -1,21 +1,24 @@
-# WEDRA
+# Nomos
 
 [Русский](README.md) | English
 
-WEDRA is a local, deterministic pipeline runner with a human approval gate.
+Nomos is a local, deterministic pipeline runner with a human approval gate.
 Agents can propose and inspect a plan, while a person remains the decision
 point for gated actions.
 
-The project is alive. 0.35.0 is in progress: plugin store and editor, import of
-an external project, automatic installation of declared dependencies, working
-schedule alerts, a ceiling on waiting for a gate, and run retention. See the
-[CHANGELOG](CHANGELOG.md) for what changed.
+## Origin and attribution
+
+**Nomos is a fork and descendant of [WEDRA](https://github.com/wykserdex/wedra), originally authored by [wykserdex](https://github.com/wykserdex).** The execution foundation, original plugins, editor, MCP support and many tests come from WEDRA. Original authorship is credited and the upstream MIT copyright notice is preserved in [LICENSE](LICENSE).
+
+Fork development: [jfglag34-png/Nomos](https://github.com/jfglag34-png/Nomos). Nomos adds parallel independent chains, an MCP composer (up to 256 steps), durable scheduling queues, crash-state recovery, webhook idempotency and a persistent Telegram/HTTP outbox.
+
+Use `nomos fleet --config=fleet.yaml` for scheduling and webhook admission. See [Nomos installation and compatibility](docs/nomos.md), [reliability guarantees](docs/fleet-reliability.md) and [MCP composition](docs/mcp-compose.md). The `wedra` CLI, `WEDRA_*` variables, existing data paths and Go module path remain compatible; explicit `NOMOS_*` values take precedence.
 
 ## Current contract
 
 - Product version: `0.34.0` from [`VERSION`](VERSION)
 - Pipeline/plugin protocol: `0.2` from [`protocol/VERSION`](protocol/VERSION)
-- Primary CLI: `wedra`
+- Primary CLI: `nomos` (`wedra` remains compatible)
 - Compatibility CLI: `tool` (legacy surface; do not add new behavior there)
 
 The product version and protocol version are independent. See the
@@ -24,12 +27,12 @@ The product version and protocol version are independent. See the
 ## Build and run
 
 ```bash
-go build -o wedra ./cmd/wedra
-./wedra version
-./wedra plugin list
-./wedra pipeline validate examples/email_check.yaml
-./wedra pipeline run examples/gate_demo.yaml
-./wedra runs list
+go build -o nomos ./cmd/nomos
+./nomos version
+./nomos plugin list
+./nomos pipeline validate examples/email_check.yaml
+./nomos pipeline run examples/gate_demo.yaml
+./nomos runs list
 ```
 
 Building from source needs Go 1.26 or newer. That floor is the `go` directive in
@@ -38,7 +41,7 @@ minimum is always the tested one.
 
 There are 100 plugins in the repository and in the registry: 5 `official` and 95
 `community`. Of those, 65 need nothing beyond a bare Python 3, while 35 declare a
-third-party donor through `runtime.requires`. WEDRA installs a donor only through `runtime.requires`, which
+third-party donor through `runtime.requires`. Nomos installs a donor only through `runtime.requires`, which
 means exactly `pip install package==version` and nothing more: it cannot install
 a Perl CLI, a Go program, or a git clone.
 
@@ -49,8 +52,8 @@ the box — that is declared debt, not a reason to drop them. Only `recon-ng` an
 either.
 
 The numbers above are a property of the catalog. The state of any given machine is
-measured, not asserted: `wedra doctor` recomputes every plugin with the same Python
-that runs WEDRA itself, and prints how many are ready and what to install. It
+measured, not asserted: `nomos doctor` recomputes every plugin with the same Python
+that runs Nomos itself, and prints how many are ready and what to install. It
 installs nothing and runs nothing.
 
 **About the word "community":** all 100 plugins are currently written
@@ -67,38 +70,33 @@ The primary CLI supports pipeline validation and execution, plugin registry
 operations, resume, the local GUI, and an MCP stdio adapter. Plugin manifests
 declare their own component version and protocol compatibility separately.
 
-## What WEDRA does not do
+## What Nomos does not do
 
 The positioning is written plainly, because the disappointment usually comes from
 this list rather than from the feature set.
 
-- **The scheduler is local, not cloud.** `wedra schedule` shows the schedule of
-  chains, `wedra daemon` ticks once a minute and starts whatever the cron says
-  is due. The daemon lives on your machine, is started explicitly, and holds a
-  lock so a second one does not start; the decision to run still belongs to a
-  person (terminal, console, `wedra approve`) or to an agent call over MCP.
-  There are still no inbound triggers: scheduling is by time only.
+- **The scheduler is local, not cloud.** `nomos fleet` supports cron, intervals and authenticated inbound webhooks with a durable queue. Pending work survives restarts; interrupted work is not blindly replayed. External uptime monitoring is still required. Legacy `nomos schedule` and `nomos daemon` are retained but do not replace fleet.
 - **It will not become a cloud, and it is not a SaaS integration sold as a
   product.** No accounts, no telemetry, and no server that holds your data for
   you: it is a binary, a `plugins/` directory, and journals under `var/runs/`.
   The console listens on `127.0.0.1` by default; exposing it is an explicit
   operator flag (`--listen`, `--allow-remote`), not a mode of operation.
-  External services are not "WEDRA integrations" but ordinary plugins that read
+  External services are not "Nomos integrations" but ordinary plugins that read
   your key from the environment.
 - **It does not chase plugin count.** The 100 plugins in the registry are not a
   showcase: 65 run on a bare Python 3, and 35 declare an external donor, which
-  `install` now pulls by itself; 13 more name an installation that `wedra doctor`
+  `install` now pulls by itself; 13 more name an installation that `nomos doctor`
   deliberately refuses to vouch for.
   A plugin enters the registry because it passes the conformance gate and
   declares `permissions` honestly, not because it was written.
-  `wedra doctor --json` lists every plugin that needs something installed and
+  `nomos doctor --json` lists every plugin that needs something installed and
   the exact command for it.
 - **It does not build cloud orchestration for its own sake.** Orchestration here
   is a DAG inside a single process: steps, `when`, `foreach`, and
   `parallel_group` with a barrier. No distributed scheduler, no queues, no
-  service discovery: everything WEDRA does happens on one machine, in one run.
+  service discovery: everything Nomos does happens on one machine, in one run.
 
-**What WEDRA does:** a deterministic run of a chain described in YAML, where the
+**What Nomos does:** a deterministic run of a chain described in YAML, where the
 decision to continue stays with a person. Steps and bindings are validated
 before the run, and the human is in the loop on `core/human_gate` rather than
 reviewing after the fact.
@@ -108,7 +106,7 @@ reviewing after the fact.
 **What the format version means.** `format_version` in YAML is the version of the
 *format protocol*, not the version of the application. The axes are independent:
 the product version lives in the `VERSION` file, the protocol version lives in
-`protocol/VERSION` and moves rarely. It is checkable: `wedra pipeline validate`
+`protocol/VERSION` and moves rarely. It is checkable: `nomos pipeline validate`
 on a file with an unknown `format_version` returns the **error**
 `E_FORMAT_VERSION`, not a warning, and an empty field is the warning
 `W_FORMAT_VERSION_MISSING`. The supported values are listed in code and do not
@@ -123,7 +121,7 @@ The promise rests on things that can be checked rather than believed:
 
 - **Two values, two live formats.** `"0.1"` is not declared legacy: it is
   accepted on equal terms with `"0.2"`, pipelines using it live in `examples/`,
-  and the `pipelines` step (`validate` + `lint` + `plan`) of a full `wedra check`
+  and the `pipelines` step (`validate` + `lint` + `plan`) of a full `nomos check`
   runs over them — the same run CI does.
 - **A breaking edit cannot be silent.** Per
   [GOVERNANCE.md](../GOVERNANCE.md), a protocol change requires a public
@@ -144,7 +142,7 @@ would be empty:
   that has already happened (`snapshot_lost`, `E_AGENT_EXEC_AUDIT`). Old YAML does
   not break because of it.
 - **There is no compatibility in the other direction.** Pipeline parsing is
-  strict (`KnownFields(true)` in `internal/pipeline/parser.go`): a WEDRA binary
+  strict (`KnownFields(true)` in `internal/pipeline/parser.go`): a Nomos binary
   older than your file refuses to open it rather than ignoring what it does not
   know. An old binary reads old files, not new ones.
 - **Error codes and MCP tool names are not a frozen API.** The gates keep the Go
@@ -162,7 +160,7 @@ would be empty:
 
 Full breakdown with code references: [docs/format-compatibility.md](docs/format-compatibility.md).
 
-The local console (`wedra gui`) shows runs with a timeline, pipelines with a DAG,
+The local console (`nomos gui`) shows runs with a timeline, pipelines with a DAG,
 the plugin catalog, and a visual editor:
 
 ![Building a chain and running it: home, editor with linked steps, step properties, the chain as YAML and a run](demo.gif)
@@ -172,7 +170,8 @@ The full console tour is in [`docs/demo.gif`](docs/demo.gif).
 ## Repository layout
 
 ```text
-cmd/wedra/            primary CLI
+cmd/nomos/            primary CLI
+cmd/wedra/            WEDRA-compatible CLI
 cmd/wedragui/         desktop launcher
 cmd/tool/             compatibility CLI
 internal/pipeline/    model, parsing, validation, planning
@@ -208,7 +207,7 @@ and are not to be reorganized without a public proposal and migration plan.
 
 ## Maintainers and safety
 
-WEDRA is currently maintained by one primary maintainer. The project is
+Nomos is currently maintained by one primary maintainer. The project is
 transparent about that risk and uses public proposals, CI gates, immutable
 release tags, and explicit registry admission. See [governance](GOVERNANCE.md)
 and [contributing](CONTRIBUTING.md).

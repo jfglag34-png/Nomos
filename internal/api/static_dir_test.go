@@ -54,8 +54,8 @@ func TestStaticIsNotPickedUpFromWorkingDir(t *testing.T) {
 	if strings.Contains(string(body), "ATTACKER PAGE") {
 		t.Fatalf("GUI отдан с диска из текущего каталога, а не из бинарника:\n%s", body)
 	}
-	if !strings.Contains(string(body), "WEDRA") {
-		t.Fatalf("встроенный GUI не отдан (нет маркера WEDRA):\n%s", body)
+	if !strings.Contains(string(body), "Nomos") {
+		t.Fatalf("встроенный GUI не отдан (нет маркера Nomos):\n%s", body)
 	}
 }
 

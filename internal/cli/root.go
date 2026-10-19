@@ -9,6 +9,7 @@ import (
 )
 
 func Run() {
+	applyNomosEnvironment()
 	if len(os.Args) < 2 {
 		printHelp()
 		os.Exit(2)
@@ -56,7 +57,7 @@ func Run() {
 		}
 		RunGUI(os.Args[2:])
 	case "version", "--version", "-v":
-		fmt.Printf("wedra v%s, protocol v0.2\n", buildinfo.Resolve())
+		fmt.Printf("Nomos v%s, protocol v0.2 (WEDRA-compatible)\n", buildinfo.Resolve())
 	case "registry":
 		if helpRequested(os.Args[2:]) {
 			printHelp()
@@ -121,41 +122,41 @@ func Run() {
 
 func printHelp() {
 	ver := buildinfo.Resolve()
-	fmt.Printf(`WEDRA — контрактный исполнитель цепочек с человеком в петле (v%s)
+	fmt.Printf(`Nomos — контрактный исполнитель цепочек с человеком в петле (v%s)
 
 Команды (мясо, не косметика):
-  wedra pipeline run <file.yaml> [--yes] [--resume=<run_id>] [--runs-dir=var/runs] [--store=fs|json] [--no-auto-approve] [--deny-untrusted-plugins] [--allow-untrusted-plugins]
-  wedra fleet --config=fleet.yaml [--check]              # parallel Ubuntu scheduler + webhook triggers
-  wedra schedule [--pipelines=<dir>] [--runs-dir=<dir>]      # показать next_run для всех cron
-  wedra daemon [--pipelines=<dir>] [--runs-dir=<dir>]        # демон: тикает каждую минуту, запускает due пайплайны (solo vs scheduled)
-  wedra pipeline install <name|file.yaml|url> [--registry=<url|path>]  # пресет + автоустановка плагинов
-  wedra pipeline validate <file.yaml> [--json]      # --json: {ok, issues[]} с кодами (ERRORS.md)
-  wedra pipeline plan <file.yaml>
-  wedra pipeline lint <file.yaml>          # validate + file_ref error
-  wedra plugin install <name>[@version] [--registry=<url|path>]        # из реестра в plugins/
-  wedra plugin validate <dir>
-  wedra plugin test <dir> [--conformance] [--json]
-  wedra plugin test --conformance [--json] [--fixtures=dir]
-  wedra plugin create <dir> [--author --description --example]
-  wedra plugin inspect <dir>
-  wedra plugin search <query>              # поиск по official/community
-  wedra plugin list                        # список всех плагинов
-  wedra registry validate [--registry=<url|path>] [--local-source=<dir>]
+  nomos pipeline run <file.yaml> [--yes] [--resume=<run_id>] [--runs-dir=var/runs] [--store=fs|json] [--no-auto-approve] [--deny-untrusted-plugins] [--allow-untrusted-plugins]
+  nomos fleet --config=fleet.yaml [--check]              # parallel Ubuntu scheduler + webhook triggers
+  nomos schedule [--pipelines=<dir>] [--runs-dir=<dir>]      # показать next_run для всех cron
+  nomos daemon [--pipelines=<dir>] [--runs-dir=<dir>]        # демон: тикает каждую минуту, запускает due пайплайны (solo vs scheduled)
+  nomos pipeline install <name|file.yaml|url> [--registry=<url|path>]  # пресет + автоустановка плагинов
+  nomos pipeline validate <file.yaml> [--json]      # --json: {ok, issues[]} с кодами (ERRORS.md)
+  nomos pipeline plan <file.yaml>
+  nomos pipeline lint <file.yaml>          # validate + file_ref error
+  nomos plugin install <name>[@version] [--registry=<url|path>]        # из реестра в plugins/
+  nomos plugin validate <dir>
+  nomos plugin test <dir> [--conformance] [--json]
+  nomos plugin test --conformance [--json] [--fixtures=dir]
+  nomos plugin create <dir> [--author --description --example]
+  nomos plugin inspect <dir>
+  nomos plugin search <query>              # поиск по official/community
+  nomos plugin list                        # список всех плагинов
+  nomos registry validate [--registry=<url|path>] [--local-source=<dir>]
                                                  # v0.17: trust-гейт реестра (манифест, id, конформность)
-  wedra runs list [var/runs]               # список прогонов (fs + json)
-  wedra runs show <run_id> [var/runs]      # журнал + context + artifacts
-  wedra runs resume <run_id> <pipeline.yaml> [--yes] [--runs-dir=var/runs] [--store=fs|json] [--db-path=file] [--no-auto-approve] [--deny-untrusted-plugins] [--allow-untrusted-plugins]
-  wedra gui [--listen 127.0.0.1:8765] [--open] [--no-session] [--allow-remote] [--public-host=<имя:порт>] [--trusted-proxy] [--plugins=<dir>] [--pipelines=<dir>] [--runs-dir=<dir>]
+  nomos runs list [var/runs]               # список прогонов (fs + json)
+  nomos runs show <run_id> [var/runs]      # журнал + context + artifacts
+  nomos runs resume <run_id> <pipeline.yaml> [--yes] [--runs-dir=var/runs] [--store=fs|json] [--db-path=file] [--no-auto-approve] [--deny-untrusted-plugins] [--allow-untrusted-plugins]
+  nomos gui [--listen 127.0.0.1:8765] [--open] [--no-session] [--allow-remote] [--public-host=<имя:порт>] [--trusted-proxy] [--plugins=<dir>] [--pipelines=<dir>] [--runs-dir=<dir>]
                                                   # консоль; вход — по одноразовому коду из терминала, /api/* кроме /api/health требует cookie
-  wedra mcp --plugins=<dir> [--workdir=<dir>] [--no-gui]  # MCP-сервер (stdio) для LLM-агентов
-  wedra approve <run_id> <step_id>                # только интерактивный TTY
-  wedra demo [--runs-dir=<dir>]                    # автономная цепочка: ноль git, ноль Python, ноль сети
-  wedra doctor [--json] [--plugins=<dir>]          # что сломано в окружении и что доустановить; ничего не ставит и не запускает
+  nomos mcp --plugins=<dir> [--workdir=<dir>] [--no-gui]  # MCP-сервер (stdio) для LLM-агентов
+  nomos approve <run_id> <step_id>                # только интерактивный TTY
+  nomos demo [--runs-dir=<dir>]                    # автономная цепочка: ноль git, ноль Python, ноль сети
+  nomos doctor [--json] [--plugins=<dir>]          # что сломано в окружении и что доустановить; ничего не ставит и не запускает
 
 Совместимость:
-  wedra check [--list|--fast|--census|--only=<step>] # ЕДИНАЯ проверка проекта: fmt, vet, mod, build, test, conformance, pipelines, plugins, registry
-  wedra run <file.yaml> == pipeline run
-  wedra validate <file.yaml> == pipeline validate
+  nomos check [--list|--fast|--census|--only=<step>] # ЕДИНАЯ проверка проекта: fmt, vet, mod, build, test, conformance, pipelines, plugins, registry
+  nomos run <file.yaml> == pipeline run
+  nomos validate <file.yaml> == pipeline validate
 
 Версия: v%s (честная 0.x), протокол v0.2
 См. protocol/v0.2/PROTOCOL.md, protocol/v0.2/ERRORS.md, docs/mcp.md, CHANGELOG.md

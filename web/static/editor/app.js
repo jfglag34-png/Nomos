@@ -169,7 +169,7 @@ function sessionOverlay() {
   // стили — в editor/index.html (#wedra-session-box): разметка не тащит цвета в JS
   box.innerHTML =
     '<div class="sbox">' +
-    '<h2>Вход в WEDRA</h2>' +
+    '<h2>Вход в Nomos</h2>' +
     '<p>Код входа одноразовый и напечатан в терминале, где запущен wedra. Он нужен один раз: ' +
     'обменяется на cookie, и редактор перезагрузится сам.</p>' +
     '<input id="wedra-code" placeholder="XXXX-XXXX-XXXX" autocomplete="off"/>' +
