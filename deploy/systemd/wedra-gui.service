@@ -1,0 +1,50 @@
+[Unit]
+Description=WEDRA — веб-консоль (раны, журнал, DAG, редактор плагинов)
+Documentation=https://github.com/wykserdex/wedra
+After=network-online.target wedra.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=wedra
+Group=wedra
+
+Environment=WEDRA_TRUST_CONFIG=/etc/wedra/wedra-trust.yaml
+
+# Слушаем только петлю: внешний доступ включается оператором осознанно, через
+# --allow-remote и --public-host, и тогда же включается сессия. Ниже
+# commented-out вариант для внешнего доступа.
+ExecStart=/usr/local/bin/wedra gui \
+    --listen 127.0.0.1:8765 \
+    --plugins=/var/lib/wedra/plugins \
+    --pipelines=/var/lib/wedra/pipelines \
+    --runs-dir=/var/lib/wedra/var/runs
+
+# Внешний доступ (открывать только вместе с прокси и сессией):
+#   --listen 0.0.0.0:8765 --allow-remote --public-host=имя[:порт] --trusted-proxy
+
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+KillSignal=SIGTERM
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/var/lib/wedra
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+
+# Одноразовый код входа печатается сюда: journalctl -u wedra-gui. Обменять
+# его на cookie — вход в консоль.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=wedra-gui
+
+[Install]
+WantedBy=multi-user.target

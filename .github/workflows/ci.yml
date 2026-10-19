@@ -118,6 +118,35 @@ jobs:
           python3 -m unittest discover -s tests/plugins -v
       - name: wedra check (fmt, vet, lint, mod, versions, errcodes, schemas, supply, build, test, conformance, mcp, pipelines, plugins, registry)
         run: go run ./cmd/wedra check --race --timeout=720
+      # Артефакты развёртывания проверяются ТУТ ЖЕ, а не «когда-нибудь
+      # вручную». Dockerfile и юниты systemd на машине разработчика не
+      # проверяются: Docker есть не везде, systemd — только на Linux. Без
+      # этих шагов они тихо сгнивают: сломанный Dockerfile и юнит с
+      # опечаткой выглядят ровно как рабочие, пока кто-нибудь не
+      # попытается поставить.
+      - name: deployment artifacts (image builds, units verified)
+        run: |
+          set -euo pipefail
+          # Юниты: проверяется синтаксис и директивы. Бинаря по пути юнита на
+          # раннере нет, поэтому подставляется заглушка: без неё systemd
+          # ругается на отсутствующий исполняемый файл, а это не ошибка
+          # самого юнита. Пользователь и каталоги тоже нужны реальные: иначе
+          # systemd-analyze не считает юнит валидным.
+          sudo ln -sf /bin/true /usr/local/bin/wedra
+          sudo useradd --system --home-dir /var/lib/wedra --shell /usr/sbin/nologin wedra || true
+          sudo mkdir -p /var/lib/wedra /etc/wedra
+          for unit in deploy/systemd/*.service; do
+            echo "== $unit"
+            systemd-analyze verify "$unit"
+          done
+          # Образ: собираются обе цели — рантайм и консоль. Сборка проверяет
+          # Dockerfile по-настоящему, а не «файл существует».
+          docker build -t wedra:ci .
+          docker build -t wedra:ci-gui --target gui .
+          # Внутри образа должно быть всё, без чего недоверенный плагин не
+          # запустится: bubblewrap (изоляция) и python (плагины).
+          # --entrypoint обязателен: в образе ENTRYPOINT — сам wedra.
+          docker run --rm --entrypoint sh wedra:ci -c 'command -v bwrap && command -v python3'
       - name: build legacy tool
         run: go build -o tool ./cmd/tool
       - name: build wedra

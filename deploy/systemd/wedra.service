@@ -1,0 +1,57 @@
+[Unit]
+Description=WEDRA — планировщик цепочек
+Documentation=https://github.com/wykserdex/wedra
+# Сеть нужна для вебхуков оповещений и для установки плагинов из реестра.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=wedra
+Group=wedra
+
+# Каталоги. Плагины и пайплайны ставятся оператором, а не лежат в системе.
+Environment=WEDRA_TRUST_CONFIG=/etc/wedra/wedra-trust.yaml
+# Адрес раздачи ссылок одобрения. По умолчанию локальный: ссылка должна быть
+# доступна человеку, а не контейнеру. Для доступа с другой машины переопределите
+# WEDRA_APPROVE_URL (см. wedra.env.example).
+Environment=WEDRA_APPROVE_LISTEN=127.0.0.1:8766
+
+ExecStart=/usr/local/bin/wedra daemon \
+    --plugins=/var/lib/wedra/plugins \
+    --pipelines=/var/lib/wedra/pipelines \
+    --runs-dir=/var/lib/wedra/var/runs
+
+# Планировщик тикает раз в минуту и живёт долго: перезапуск при падении.
+Restart=on-failure
+RestartSec=5s
+# Демон сам держит блокировку от второго экземпляра, но systemd должен и
+# уметь перезапустить его после рестарта хоста без гонки.
+TimeoutStopSec=30s
+KillSignal=SIGTERM
+
+# --- изоляция и доступ ------------------------------------------------------
+# NoNewPrivileges не мешает bubblewrap: пользовательские пространства он не
+# запрещает, а setuid-поднятиям мешает.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/var/lib/wedra
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+# Сетевые фильтры намеренно не заданы: песочница и вебхуки ходят в сеть по
+# разным адресам, и жёсткий список здесь ломал бы одно из двух.
+
+# Журнал иденности: плагины смотрят в HOME, но под ProtectHome=read-only он
+# доступен на чтение, а пишут они в свой каталог.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=wedra
+
+[Install]
+WantedBy=multi-user.target
