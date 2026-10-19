@@ -17,12 +17,16 @@ func shellForTest() string {
 	return "sh"
 }
 
-// exitArgForTest — аргумент завершения.
-func exitArgForTest() string {
+// exitArgsForTest — аргументы завершения.
+//
+// Именно ОТДЕЛЬНЫМИ аргументами: `sh "-c exit 0"` — это один аргумент, и sh
+// такой не понимает (он ждёт -c и команду раздельно). На Windows cmd такой
+// вызов терпит, а на Linux и macOS — нет, и тест падал бы только там.
+func exitArgsForTest() []string {
 	if runtime.GOOS == "windows" {
-		return "/c exit 0"
+		return []string{"/c", "exit 0"}
 	}
-	return "-c exit 0"
+	return []string{"-c", "exit 0"}
 }
 
 // TestTryLockTakesOverDeadOwner — блокировка, владелец которой мёртв,
@@ -38,7 +42,7 @@ func TestTryLockTakesOverDeadOwner(t *testing.T) {
 	// pid из заведомо завершившегося процесса: гарантированно мёртвый.
 	// Произвольное большое число брать нельзя — на Windows OpenProcess может
 	// ответить успехом на pid, которого нет.
-	dead := exec.Command(shellForTest(), exitArgForTest())
+	dead := exec.Command(shellForTest(), exitArgsForTest()...)
 	if err := dead.Run(); err != nil {
 		t.Fatalf("вспомогательный процесс: %v", err)
 	}
