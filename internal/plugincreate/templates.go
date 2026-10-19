@@ -214,11 +214,7 @@ func patternOr(opts CreateOptions, def string) string {
 // sharedPrelude — общая часть Python-тела: протокол конверта и ok/fail.
 // Дублируется в каждом шаблоне намеренно: у сгенерированного плагина не должно
 // быть зависимостей и импортов из репозитория WEDRA.
-const sharedPrelude = `import json
-import sys
-
-
-def ok(output):
+const sharedPrelude = `def ok(output):
     print(json.dumps({"status": "ok", "output": output}, ensure_ascii=False))
     return 0
 
@@ -295,6 +291,8 @@ func buildTextMetrics(id string, opts CreateOptions) (pluginFiles, error) {
 если нужны другие метрики — контракт придётся расшивить и в манифесте, и в
 plugin.test.yaml.
 """
+import json, sys
+
 ` + sharedPrelude + `
 
 def main():
@@ -407,7 +405,7 @@ func buildRegexReplace(id string, opts CreateOptions) (pluginFiles, error) {
 генерации; свободного кода здесь нет by design. В ZАМЕНЕ поддерживаются
 обратные ссылки re.sub: \\1, \\g<name>.
 """
-import re
+import json, re, sys
 
 ` + sharedPrelude + `
 PATTERN = re.compile(` + patLit + `)
@@ -523,7 +521,7 @@ func buildLineFilter(id string, opts CreateOptions) (pluginFiles, error) {
 
 Сгенерировано шаблоном. PATTERN — данные, вписанные при генерации.
 """
-import re
+import json, re, sys
 
 ` + sharedPrelude + `
 PATTERN = re.compile(` + patLit + `)

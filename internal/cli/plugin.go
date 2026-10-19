@@ -110,7 +110,36 @@ func RunPluginTest(args []string) {
 	}
 }
 
+// printPluginCreateUsage — справка именно по `plugin create`.
+//
+// Раньше `wedra plugin create --help` печатал глобальную справку: root ловил
+// `--help` где угодно в аргументах, и подкоманда до своей справки не доходила.
+// Человек видел список команд WEDRA вместо того, как создать плагин, и
+// справка выглядела сломанной.
+func printPluginCreateUsage() {
+	fmt.Println(`wedra plugin create <dir> [--author=ИМЯ] [--description=ТЕКСТ]
+                      [--example=JSON] [--template=ИМЯ] [--pattern=РЕГУЛЯРКА]
+                      [--replacement=ТЕКСТ] [--list-templates]
+
+Создаёт каталог плагина: plugin.yaml + main.py + plugin.test.yaml + README.md
+и requirements.lock (если плагину нужен донор). Готовый каталог сразу проходит
+проверку ValidatePluginDir и его тесты.
+
+--template=ИМЯ      шаблон тела: skeleton, rest-api, smtp, postgres, redis
+--pattern/--replacement   правило замены в теле (например, переименовать
+                     входной порт) — применяется к сгенерированному main.py
+--list-templates    показать список шаблонов и выйти
+--author/--description/--example   метаданные плагина
+
+Путь каталога обязателен и должен быть новым.`)
+}
+
+// RunPluginCreate — wedra plugin create <dir> [...]
 func RunPluginCreate(args []string) {
+	if helpRequested(args) {
+		printPluginCreateUsage()
+		return
+	}
 	dir, opts, listRequested, err := core.ParseCreateArgs(args)
 	if err != nil {
 		fmt.Println("ошибка:", err)

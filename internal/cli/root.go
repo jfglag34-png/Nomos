@@ -26,7 +26,10 @@ func Run() {
 		}
 		handlePipeline(os.Args[2:])
 	case "plugin":
-		if helpRequested(os.Args[2:]) {
+		// Глобальная справка — только когда её просят У САМОЙ команды plugin.
+		// Раньше helpRequested смотрел во все аргументы, и `wedra plugin create
+		// --help` упирался в общий список команд вместо справки по create.
+		if len(os.Args) > 2 && isHelpFlag(os.Args[2]) {
 			printHelp()
 			return
 		}
@@ -156,6 +159,11 @@ func printHelp() {
 `, ver, ver)
 }
 
+// isHelpFlag — сам ли аргумент просит справку.
+func isHelpFlag(a string) bool {
+	return a == "help" || a == "--help" || a == "-h"
+}
+
 func helpRequested(args []string) bool {
 	for _, a := range args {
 		if a == "help" || a == "--help" || a == "-h" {
@@ -201,6 +209,8 @@ func handleRuns(args []string) {
 		RunRunsShow(args[1:])
 	case "resume":
 		RunRunsResume(args[1:])
+	case "prune":
+		RunRunsPrune(args[1:])
 	default:
 		if strings.HasPrefix(sub, "-") {
 			fmt.Printf("неизвестная runs команда %q\n", sub)

@@ -31,9 +31,9 @@ Building from source needs Go 1.26 or newer. That floor is the `go` directive in
 `go.mod`, and the `go-floor` CI job builds on exactly it, so the documented
 minimum is always the tested one.
 
-There are 99 plugins in the repository and in the registry: 5 `official` and 94
-`community`. Of those, 58 need nothing beyond a bare Python 3, while 41 wrap a
-third-party donor. WEDRA installs a donor only through `runtime.requires`, which
+There are 100 plugins in the repository and in the registry: 5 `official` and 95
+`community`. Of those, 65 need nothing beyond a bare Python 3, while 35 declare a
+third-party donor through `runtime.requires`. WEDRA installs a donor only through `runtime.requires`, which
 means exactly `pip install package==version` and nothing more: it cannot install
 a Perl CLI, a Go program, or a git clone.
 
@@ -48,8 +48,8 @@ measured, not asserted: `wedra doctor` recomputes every plugin with the same Pyt
 that runs WEDRA itself, and prints how many are ready and what to install. It
 installs nothing and runs nothing.
 
-**About the word "community":** all 99 plugins are currently written
-by the repository owner and live in that same repository — all 99 registry
+**About the word "community":** all 100 plugins are currently written
+by the repository owner and live in that same repository — all 100 registry
 entries carry the same `source`, `https://github.com/wykserdex/wedra`, with no
 outside sources and no third-party authors. "Community" means shipped outside the
 core, that is, everything not in the maintained `plugins/official/` set — not
@@ -67,13 +67,12 @@ declare their own component version and protocol compatibility separately.
 The positioning is written plainly, because the disappointment usually comes from
 this list rather than from the feature set.
 
-- **It will not become a daemon.** There is no scheduler, no webhooks, and no
-  inbound triggers: no such command in the CLI and no such endpoint in the HTTP
-  console. Scheduling belongs to an outside system — cron, the Windows task
-  scheduler, CI — and the decision to run belongs to a person (terminal,
-  console, `wedra approve`) or to an agent call over MCP. A long-lived process
-  that decides by itself when to start a chain is a separate product with a
-  separate failure model; WEDRA deliberately does not build it.
+- **The scheduler is local, not cloud.** `wedra schedule` shows the schedule of
+  chains, `wedra daemon` ticks once a minute and starts whatever the cron says
+  is due. The daemon lives on your machine, is started explicitly, and holds a
+  lock so a second one does not start; the decision to run still belongs to a
+  person (terminal, console, `wedra approve`) or to an agent call over MCP.
+  There are still no inbound triggers: scheduling is by time only.
 - **It will not become a cloud, and it is not a SaaS integration sold as a
   product.** No accounts, no telemetry, and no server that holds your data for
   you: it is a binary, a `plugins/` directory, and journals under `var/runs/`.
@@ -81,10 +80,10 @@ this list rather than from the feature set.
   operator flag (`--listen`, `--allow-remote`), not a mode of operation.
   External services are not "WEDRA integrations" but ordinary plugins that read
   your key from the environment.
-- **It does not chase plugin count.** The 99 plugins in the registry are not a
-  showcase: 58 run on a bare Python 3, and 41 need an external donor, of which 26
-  would be installed by a single manifest line we have not written yet; 13 more
-  name an installation that `wedra doctor` deliberately refuses to vouch for.
+- **It does not chase plugin count.** The 100 plugins in the registry are not a
+  showcase: 65 run on a bare Python 3, and 35 declare an external donor, which
+  `install` now pulls by itself; 13 more name an installation that `wedra doctor`
+  deliberately refuses to vouch for.
   A plugin enters the registry because it passes the conformance gate and
   declares `permissions` honestly, not because it was written.
   `wedra doctor --json` lists every plugin that needs something installed and
