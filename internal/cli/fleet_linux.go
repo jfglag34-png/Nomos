@@ -29,6 +29,8 @@ import (
 )
 
 type fleetJob struct {
+	Every       string `yaml:"every"`
+	interval    time.Duration
 	ID          string `yaml:"id"`
 	File        string `yaml:"file"`
 	Cron        string `yaml:"cron"`
@@ -106,6 +108,15 @@ func loadFleet(path string) (fleetConfig, error) {
 		j.location, e = time.LoadLocation(j.Timezone)
 		if e != nil {
 			return c, e
+		}
+		if j.Every != "" {
+			if j.Cron != "" {
+				return c, fmt.Errorf("%s: use cron OR every", j.ID)
+			}
+			j.interval, e = time.ParseDuration(j.Every)
+			if e != nil || j.interval < time.Minute {
+				return c, fmt.Errorf("%s: every must be at least 1m", j.ID)
+			}
 		}
 		if j.Cron != "" && !cron.IsValid(j.Cron) {
 			return c, fmt.Errorf("%s: invalid cron", j.ID)
@@ -323,12 +334,21 @@ func RunFleet(args []string) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	last := time.Time{}
+	nextInterval := map[string]time.Time{}
 loop:
 	for {
 		select {
 		case <-ctx.Done():
 			break loop
 		case now := <-ticker.C:
+			for _, j := range c.Jobs {
+				if j.interval > 0 && !now.Before(nextInterval[j.ID]) {
+					if !f.start(j) {
+						log.Printf("job=%s skipped: busy/capacity", j.ID)
+					}
+					nextInterval[j.ID] = now.Add(j.interval)
+				}
+			}
 			minute := now.Truncate(time.Minute)
 			if minute.Equal(last) {
 				continue

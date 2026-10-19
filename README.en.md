@@ -237,3 +237,5 @@ by destination for a plugin that declares `permissions.network` - it gets
 unfiltered egress, just not inside the host's network namespace. So it is not a
 complete boundary for hostile code. Report vulnerabilities according to
 [SECURITY.md](SECURITY.md).
+
+MCP `compose_pipeline`: validated staged pipeline builder (up to 256 steps), with optional safe artifact saving and whole-chain interval fleet configuration. See docs/mcp-compose.md.

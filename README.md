@@ -91,7 +91,7 @@ pip install sherlock-project
 
 | Поверхность | Инструменты |
 |---|---|
-| Агенты (MCP) | 8 инструментов: `list_plugins`, `describe_plugin`, `validate_pipeline`, `plan_pipeline`, `run_pipeline`, `get_run`, `cancel_run`, `exec_plugin` (выключен по умолчанию) |
+| Агенты (MCP) | 9 инструментов: `compose_pipeline`, `list_plugins`, `describe_plugin`, `validate_pipeline`, `plan_pipeline`, `run_pipeline`, `get_run`, `cancel_run`, `exec_plugin` (выключен по умолчанию) |
 
 ## Чего WEDRA не делает
 

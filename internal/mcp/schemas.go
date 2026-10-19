@@ -73,6 +73,20 @@ func toolDefs() []Tool {
 	wait["maximum"] = maxWaitSeconds
 	return []Tool{
 		{
+			Name:        "compose_pipeline",
+			Description: "Build and validate long pipelines (up to 256 steps) from installed plugins. First list_plugins and describe_plugin to discover actual ports. Stages run sequentially; steps within each stage run in parallel with a barrier. Explicit bind links data; do not invent plugin ports. Returns pipeline YAML and a fleet config repeating the WHOLE chain every N minutes with overlap protection. save writes new artifacts under workdir but NEVER activates schedules or auto-approves gates. Operator reviews and installs fleet config; alerts use fleet environment.",
+			InputSchema: obj(map[string]interface{}{
+				"name":          str("unique safe artifact name"),
+				"every_minutes": map[string]interface{}{"type": "integer", "minimum": 1, "maximum": 525600},
+				"timeout":       str("whole run timeout, e.g. 20m"),
+				"input":         map[string]interface{}{"type": "object"},
+				"stages":        map[string]interface{}{"type": "array", "minItems": 1, "maxItems": 256, "items": map[string]interface{}{"type": "object", "required": []string{"steps"}, "properties": map[string]interface{}{"steps": map[string]interface{}{"type": "array", "minItems": 1, "maxItems": 32, "items": map[string]interface{}{"type": "object", "required": []string{"id", "plugin"}, "properties": map[string]interface{}{"id": str("unique step id"), "plugin": str("installed plugin id"), "bind": map[string]interface{}{"type": "object", "additionalProperties": map[string]interface{}{"type": "string"}}}}}}}},
+				"save":          boolSch("save new files without overwriting; default false"),
+			}, "name", "every_minutes", "stages"),
+			OutputSchema: objSchema(map[string]interface{}{"ok": boolSch("validation succeeded"), "activated": boolSch("always false"), "yaml": str("generated pipeline"), "fleet_yaml": str("generated schedule when valid"), "issues": arrSch("validation issues")}, "ok", "activated", "yaml", "issues"),
+			Annotations:  annot(false, false, false, false),
+		},
+		{
 			Name:        "list_plugins",
 			Description: "Список плагинов: id, version, description, порты (type/format/optional), permissions",
 			InputSchema: obj(map[string]interface{}{"filter": str("подстрока по id/description (опционально)")}),

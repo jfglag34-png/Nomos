@@ -69,3 +69,21 @@ func TestFleetAdmission(t *testing.T) {
 		t.Fatal("admitted after shutdown")
 	}
 }
+
+func TestFleetEveryMinutes(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "p.yaml")
+	os.WriteFile(p, []byte("pipeline: {}"), 0600)
+	for _, every := range []string{"7m", "90m", "30s", "bad"} {
+		file := filepath.Join(dir, "fleet.yaml")
+		os.WriteFile(file, []byte("jobs:\n  - id: p\n    file: "+p+"\n    every: "+every+"\n"), 0600)
+		c, e := loadFleet(file)
+		valid := every == "7m" || every == "90m"
+		if (e == nil) != valid {
+			t.Fatalf("every %s: %v", every, e)
+		}
+		if valid && c.Jobs[0].interval == 0 {
+			t.Fatal("interval not initialized")
+		}
+	}
+}

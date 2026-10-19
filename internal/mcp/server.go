@@ -235,6 +235,8 @@ func (s *Server) callTool(call *inflightCall, name string, args map[string]inter
 		args = map[string]interface{}{}
 	}
 	switch name {
+	case "compose_pipeline":
+		return s.toolCompose(args)
 	case "list_plugins":
 		return s.toolListPlugins(args)
 	case "describe_plugin":
