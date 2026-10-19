@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/wykserdex/wedra/internal/pipeline"
@@ -87,8 +88,47 @@ func TestComposeNetworkDraftDoesNotEnableMCPExecution(t *testing.T) {
 func TestComposeNetworkDraftStillChecksFilePaths(t *testing.T) {
 	s := testServer(t)
 	ref := writePolicyPlugin(t, s.pluginsDirs[0], "network_file_connector", []map[string]interface{}{{"any_host": true, "port": 443}}, map[string]interface{}{"file": map[string]interface{}{"type": "string", "format": "file_ref", "from": "input.file"}})
-	args := map[string]interface{}{"name": "network_file_draft", "every_minutes": float64(5), "network": "allow", "input": map[string]interface{}{"file": "/etc/passwd"}, "stages": []interface{}{map[string]interface{}{"steps": []interface{}{map[string]interface{}{"id": "request", "plugin": ref}}}}}
-	if _, _, e := s.toolCompose(args); e == nil {
-		t.Fatal("file path safety bypassed")
+	// /etc/passwd is NOT an absolute path on Windows. Use actual native paths
+	// and real files so this test checks confinement rather than Unix spelling.
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	inside := filepath.Join(s.workDir, "inside.txt")
+	parent := filepath.Join(filepath.Dir(s.workDir), "parent.txt")
+	for _, path := range []string{outside, inside, parent} {
+		if e := os.WriteFile(path, []byte("fixture"), 0600); e != nil {
+			t.Fatal(e)
+		}
+	}
+	for _, tc := range []struct {
+		name, path string
+		allowed    bool
+	}{
+		{"outside_absolute", outside, false},
+		{"parent_traversal", filepath.Join("..", "parent.txt"), false},
+		{"inside_absolute", inside, true},
+		{"inside_relative", "inside.txt", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			args := map[string]interface{}{"name": "network_file_draft", "every_minutes": float64(5), "network": "allow", "input": map[string]interface{}{"file": tc.path}, "stages": []interface{}{map[string]interface{}{"steps": []interface{}{map[string]interface{}{"id": "request", "plugin": ref}}}}}
+			text, _, e := s.toolCompose(args)
+			if !tc.allowed {
+				if e == nil {
+					t.Fatal("file path safety bypassed")
+				}
+				if !strings.Contains(e.Message, "E_FILE_REF_OUTSIDE_ROOT") {
+					t.Fatalf("unexpected refusal: %v", e)
+				}
+				return
+			}
+			if e != nil {
+				t.Fatalf("in-workdir file refused: %v", e)
+			}
+			var result map[string]interface{}
+			if err := json.Unmarshal([]byte(text), &result); err != nil {
+				t.Fatal(err)
+			}
+			if result["ok"] != true {
+				t.Fatal(text)
+			}
+		})
 	}
 }
