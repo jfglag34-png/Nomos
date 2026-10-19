@@ -41,12 +41,14 @@ type fleetJob struct {
 	location    *time.Location
 }
 type fleetConfig struct {
+	MaxPending  int        `yaml:"max_pending"`
 	Concurrency int        `yaml:"concurrency"`
 	Listen      string     `yaml:"listen"`
 	RunsDir     string     `yaml:"runs_dir"`
 	Jobs        []fleetJob `yaml:"jobs"`
 }
 type fleet struct {
+	store  *fleetStore
 	idemMu sync.Mutex
 	cfg    fleetConfig
 	mu     sync.Mutex
@@ -67,6 +69,12 @@ func loadFleet(path string) (fleetConfig, error) {
 	d.KnownFields(true)
 	if e = d.Decode(&c); e != nil {
 		return c, e
+	}
+	if c.MaxPending == 0 {
+		c.MaxPending = 1000
+	}
+	if c.MaxPending < 1 || c.MaxPending > 100000 {
+		return c, fmt.Errorf("max_pending must be 1..100000")
 	}
 	if c.Concurrency == 0 {
 		c.Concurrency = 6
@@ -126,8 +134,21 @@ func loadFleet(path string) (fleetConfig, error) {
 	return c, nil
 }
 
-// Admission is atomic: no duplicate execution and no unbounded trigger queue.
+// Production admission persists work in a bounded queue. The direct path is
+// retained for isolated runner tests and legacy compatibility.
 func (f *fleet) start(j fleetJob) bool {
+	if f.store != nil {
+		if f.ctx.Err() != nil {
+			return false
+		}
+		_, _, e := f.store.enqueue(j, "")
+		if e != nil {
+			log.Printf("queue admission failed job=%s: %v", j.ID, e)
+			return false
+		}
+		return true
+	}
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.ctx.Err() != nil || f.active[j.ID] {
@@ -147,17 +168,25 @@ func (f *fleet) start(j fleetJob) bool {
 	}()
 	return true
 }
-func (f *fleet) run(j fleetJob) {
-	stamp := time.Now().UTC().Format("20060102T150405.000000000")
+func (f *fleet) run(j fleetJob) string { return f.runTracked(j, "") }
+func (f *fleet) runTracked(j fleetJob, taskID string) string {
+	stamp := taskID
+	if stamp == "" {
+		stamp = time.Now().UTC().Format("20060102T150405.000000000")
+	}
 	dir := filepath.Join(f.cfg.RunsDir, j.ID, stamp)
 	if e := os.MkdirAll(dir, 0700); e != nil {
-		fleetAlert("failure", j.ID, "cannot create run directory")
-		return
+		if f.store == nil {
+			f.notify("failure", j.ID, "cannot create run directory")
+		}
+		return "failure"
 	}
 	out, e := os.OpenFile(filepath.Join(dir, "output.log"), os.O_CREATE|os.O_WRONLY, 0600)
 	if e != nil {
-		fleetAlert("failure", j.ID, "cannot open run log")
-		return
+		if f.store == nil {
+			f.notify("failure", j.ID, "cannot open run log")
+		}
+		return "failure"
 	}
 	defer out.Close()
 	args := []string{"pipeline", "run", j.File, "--runs-dir=" + filepath.Join(dir, "runs")}
@@ -167,7 +196,7 @@ func (f *fleet) run(j fleetJob) {
 	cmd := exec.Command(f.exe, args...)
 	cmd.Stdout = out
 	cmd.Stderr = out
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
 	event, detail := "success", "completed"
 	if e = cmd.Start(); e != nil {
 		event, detail = "failure", "could not start pipeline"
@@ -184,7 +213,7 @@ func (f *fleet) run(j fleetJob) {
 		case <-timer.C:
 			event, detail = "timeout", "runtime exceeded "+j.Timeout
 			// Notify before cleanup; a hung pipeline must not delay the alert.
-			go fleetAlert(event, j.ID, detail)
+			f.notify(event, j.ID, "task "+taskID+": "+detail)
 			syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 			<-done
 		case <-f.ctx.Done():
@@ -200,9 +229,10 @@ func (f *fleet) run(j fleetJob) {
 		log.Printf("result write: %v", e)
 	}
 	log.Printf("job=%s event=%s log=%s", j.ID, event, dir)
-	if event != "timeout" {
-		fleetAlert(event, j.ID, detail)
+	if event != "timeout" && f.store == nil {
+		f.notify(event, j.ID, detail)
 	}
+	return event
 }
 
 // Channels are independent; a broken webhook cannot suppress Telegram.
@@ -255,7 +285,33 @@ func (f *fleet) handler() http.Handler {
 		}
 		if r.Method == "GET" && r.URL.Path == "/health" {
 			w.Header().Set("Content-Type", "application/json")
-			io.WriteString(w, `{"ok":true}`)
+			if f.store != nil {
+				result, healthy := f.store.health()
+				if !healthy {
+					w.WriteHeader(503)
+				}
+				json.NewEncoder(w).Encode(result)
+			} else {
+				io.WriteString(w, `{"ok":true}`)
+			}
+			return
+		}
+		if r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/tasks/") && f.store != nil {
+			id := strings.TrimPrefix(r.URL.Path, "/tasks/")
+			f.store.mu.Lock()
+			t := f.store.state.Tasks[id]
+			var result map[string]interface{}
+			if t != nil {
+				result = map[string]interface{}{"task_id": t.ID, "job": t.Job.ID, "status": t.Status, "created": t.Created, "updated": t.Updated, "run_dir": filepath.Join(f.cfg.RunsDir, t.Job.ID, t.ID)}
+			}
+			f.store.mu.Unlock()
+			if result == nil {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "no-store")
+			json.NewEncoder(w).Encode(result)
 			return
 		}
 		if r.Method != "POST" {
@@ -316,6 +372,16 @@ func RunFleet(args []string) {
 		log.Fatal(e)
 	}
 	f := &fleet{cfg: c, ctx: ctx, exe: exe, active: map[string]bool{}, slots: make(chan struct{}, c.Concurrency)}
+	f.store, e = openFleetStore(c.RunsDir, c.MaxPending, fleetChannels())
+	if e != nil {
+		log.Fatal(e)
+	}
+	// Always drain both channels, including pending notices whose env is currently absent.
+	var deliveryWG sync.WaitGroup
+	for _, channel := range []string{"telegram", "webhook"} {
+		deliveryWG.Add(1)
+		go func(ch string) { defer deliveryWG.Done(); f.deliveryLoop(ctx, ch) }(channel)
+	}
 	listener, e := net.Listen("tcp", c.Listen)
 	if e != nil {
 		log.Fatal(e)
@@ -327,23 +393,23 @@ func RunFleet(args []string) {
 			cancel()
 		}
 	}()
-	fleetAlert("started", "fleet", "scheduler started")
+	f.notify("started", "fleet", "scheduler started")
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	last := time.Time{}
-	nextInterval := map[string]time.Time{}
+
 loop:
 	for {
 		select {
 		case <-ctx.Done():
 			break loop
 		case now := <-ticker.C:
+			f.dispatch()
 			for _, j := range c.Jobs {
-				if j.interval > 0 && !now.Before(nextInterval[j.ID]) {
-					if !f.start(j) {
-						log.Printf("job=%s skipped: busy/capacity", j.ID)
+				if j.interval > 0 {
+					if e := f.store.scheduleInterval(j, now); e != nil {
+						log.Printf("interval queue blocked job=%s: %v", j.ID, e)
 					}
-					nextInterval[j.ID] = now.Add(j.interval)
 				}
 			}
 			minute := now.Truncate(time.Minute)
@@ -357,8 +423,9 @@ loop:
 				}
 				next := cron.Next(j.Cron, minute.In(j.location).Add(-time.Minute))
 				if next != nil && next.Equal(minute) {
-					if !f.start(j) {
-						log.Printf("job=%s skipped: busy/capacity", j.ID)
+					if _, _, e := f.store.enqueue(j, "cron:"+j.ID+":"+minute.UTC().Format(time.RFC3339)); e != nil {
+						log.Printf("cron queue rejected job=%s: %v", j.ID, e)
+						f.notify("queue_rejected", j.ID, "cron queue admission rejected; check capacity/storage")
 					}
 				}
 			}
@@ -370,5 +437,6 @@ loop:
 	f.mu.Lock()
 	f.mu.Unlock()
 	f.wg.Wait()
-	fleetAlert("stopped", "fleet", "scheduler stopped")
+	f.notify("stopped", "fleet", "scheduler stopped")
+	deliveryWG.Wait()
 }

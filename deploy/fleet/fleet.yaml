@@ -1,3 +1,4 @@
+max_pending: 1000
 concurrency: 6
 listen: 127.0.0.1:8770
 runs_dir: /var/lib/wedra/fleet-runs

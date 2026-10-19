@@ -45,6 +45,47 @@ func (f *fleet) trigger(w http.ResponseWriter, r *http.Request, j fleetJob) {
 			return
 		}
 	}
+	if f.store != nil {
+		if f.ctx.Err() != nil {
+			http.Error(w, "shutting down", 503)
+			return
+		}
+		hash := sha256.Sum256([]byte(j.ID + "\x00" + key))
+		// Do not reinterpret legacy claims as fresh submissions after upgrade.
+		legacy := filepath.Join(f.cfg.RunsDir, ".trigger-claims", hex.EncodeToString(hash[:])+".json")
+		if raw, e := os.ReadFile(legacy); e == nil {
+			var receipt triggerReceipt
+			if json.Unmarshal(raw, &receipt) != nil || receipt.ID == "" || receipt.Job != j.ID {
+				http.Error(w, "legacy claim corrupt", 503)
+				return
+			}
+			writeTriggerResponse(w, 200, receipt, true)
+			return
+		} else if !errors.Is(e, os.ErrNotExist) {
+			http.Error(w, "legacy claim store unavailable", 503)
+			return
+		}
+		task, replay, e := f.store.enqueue(j, hex.EncodeToString(hash[:]))
+		if e != nil {
+			code := 503
+			if errors.Is(e, errFleetQueueFull) {
+				code = 429
+				w.Header().Set("Retry-After", "5")
+			}
+			http.Error(w, "queue unavailable; retry SAME key", code)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		if replay {
+			w.Header().Set("Idempotency-Replayed", "true")
+			w.WriteHeader(200)
+		} else {
+			w.WriteHeader(202)
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"trigger_id": task.ID, "task_id": task.ID, "job": task.Job.ID, "replayed": replay, "status": task.Status, "claimed_at": task.Created})
+		return
+	}
 	f.idemMu.Lock()
 	defer f.idemMu.Unlock()
 	dir := filepath.Join(f.cfg.RunsDir, ".trigger-claims")
