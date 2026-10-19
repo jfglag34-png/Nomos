@@ -138,12 +138,12 @@ func TestTimeoutUINilInner(t *testing.T) {
 	}
 }
 
-// TestTimeoutUIImplementsStructuredUI — ран выбирает структурированный путь по
-// интерфейсу, а не по типу. Если этот assert перестанет проходить, таймаут
-// молча выключится и всё вернётся к висящему ранy.
-func TestTimeoutUIImplementsStructuredUI(t *testing.T) {
-	var ui StructuredUI = NewTimeoutUI(&fakeStructured{}, time.Second, TimeoutAbort)
-	if ui == nil {
-		t.Fatal("TimeoutUI не удовлетворяет StructuredUI")
-	}
-}
+// TimeoutUI обязан удовлетворять StructuredUI — ран выбирает структурированный
+// путь по интерфейсу, а не по типу.
+//
+// Проверка именно компиляционная: рантайм-сравнение `var ui StructuredUI =
+// NewTimeoutUI(...)` с nil всегда истинно иstaticcheck справедливо роняет такой
+// код как SA4023. Если TimeoutUI перестанет удовлетворять интерфейсу, сборка
+// должна не пройти — иначе таймаут молча выключится и всё вернётся к висящему
+// ранy без единого красного теста.
+var _ StructuredUI = (*TimeoutUI)(nil)
