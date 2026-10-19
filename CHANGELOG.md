@@ -97,6 +97,7 @@
 - **plugincreate** 2.5k → `internal/plugincreate/` (`plugincreate.go` 463 + `templates.go` 610 + `doc.go`) + `core/plugincreate_shim.go` (alias `CreateOptions` + `TemplateNames`/`PyLiteralForTest`); тесты интеграционные остались в `core`.
 - **conformance** 2.1k → `internal/conformance/` (`conformance.go` 439 + `doc.go`) + `core/conformance_shim.go` (`Manifest/NewEngine` локально, без цикла `core/types.go`).
 - **plugintest** 1.7k → `internal/plugintest/` (`plugintest.go` 437 + `service.go` 284 + `doc.go`, алиасы `Manifest/Duration/NewEngine`, `truncate=common.Truncate`/`kindOf` локально, `EnforceOutput→plugin.EnforceOutput`) + `core/plugintest_shim.go`; тесты и `testdata` продублированы.
+- **переименование**: `internal/execution/scheduler.go` → `internal/execution/graph.go`.
 - **scheduler daemon**: `internal/cron/daemon.go` lock `runsDir/.daemon.lock` (opt-in, второй демон не стартует) + state `<runsDir>/.state/*.json` (`NextRun/LastRun`) для GUI и `catchUp`; `overlap` `skip|queue|allow` через `runsDir/.running.*.lock`, `catchUp` догоняет пропущенные слоты, `humanGate` `autoApprove|wait`, `alerts` `webhook` hook `fireAlert` (MVP без сети — локально, без внешних зависимостей).
 - **сеть**: `internal/pipeline/network_doc.go` — структурные `host:port` без `any_host` (13/41) — лишь намерение, не фильтр; `any_host` only исполнимо, остальное `network_not_enforceable`; `importer` `TODO(человек)` в `genshell.go` — намеренно: импортёр генерит скелет без вызова донора (сигнатуру нельзя угадать), человек дописывает вызов.
 
