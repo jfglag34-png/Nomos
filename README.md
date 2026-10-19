@@ -8,7 +8,7 @@
 
 **Nomos — самостоятельный форк и потомок [WEDRA](https://github.com/wykserdex/wedra), исходный автор — [wykserdex](https://github.com/wykserdex).** Основа исполнения, исходные плагины, редактор, MCP и значительная часть тестов унаследованы от WEDRA. Авторство исходного проекта не присваивается: уведомление об авторских правах и MIT-лицензия сохранены в [LICENSE](LICENSE).
 
-Развитие форка: [jfglag34-png/Nomos](https://github.com/jfglag34-png/Nomos). Здесь добавлены независимые параллельные цепочки, MCP-конструктор длинных цепочек, расписания с дисковой очередью, восстановление после падения, защита webhook от дублей и постоянная очередь уведомлений Telegram/HTTP.
+Развитие форка: [ropemaxbroplayer/Nomos](https://github.com/ropemaxbroplayer/Nomos). Здесь добавлены независимые параллельные цепочки, MCP-конструктор длинных цепочек, расписания с дисковой очередью, восстановление после падения, защита webhook от дублей и постоянная очередь уведомлений Telegram/HTTP.
 
 ### Коннекторы
 
@@ -47,7 +47,7 @@ go build -o nomos ./cmd/nomos
 ./nomos demo
 ```
 
-Готовые сборки есть на странице [Releases](https://github.com/jfglag34-png/Nomos/releases), но только для опубликованных версий (см. раздел «Релизы» ниже).
+Готовые сборки есть на странице [Releases](https://github.com/ropemaxbroplayer/Nomos/releases), но только для опубликованных версий (см. раздел «Релизы» ниже).
 
 Демо работает без Git, Python и сети и проверяет, что Nomos запускается. Оно использует встроенные модули, а не стороннюю цепочку плагинов. На Windows бинарник называется `nomos.exe` — команды ниже те же, `./` не нужен.
 
@@ -238,7 +238,7 @@ pipeline:
 
 ## Релизы
 
-Опубликованные сборки Nomos будут доступны в [GitHub Releases](https://github.com/jfglag34-png/Nomos/releases):
+Опубликованные сборки Nomos будут доступны в [GitHub Releases](https://github.com/ropemaxbroplayer/Nomos/releases):
 `nomos-{linux,darwin,windows}-{amd64,arm64}`, совместимые `wedra-*` и `tool-*`, `nomos-gui-windows-*.exe`,
 conformance-пакет, `SHA256SUMS`, SBOM (`sbom.spdx.json`) и build provenance.
 Релизный воркфлоу подписывает `SHA256SUMS` и SBOM ключом без секретов
@@ -265,4 +265,4 @@ Nomos находится в активной разработке версии 0
 - [Формат пайплайна](protocol/v0.2/PROTOCOL.md)
 - [Обещание совместимости формата](docs/format-compatibility.md)
 - [Участие в проекте](CONTRIBUTING.md) · [Governance](GOVERNANCE.md)
-- [Сообщить об ошибке или предложить плагин](https://github.com/jfglag34-png/Nomos/issues)
+- [Сообщить об ошибке или предложить плагин](https://github.com/ropemaxbroplayer/Nomos/issues)

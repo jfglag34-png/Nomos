@@ -267,7 +267,7 @@ jobs:
           curl -sf -o /dev/null -c /tmp/cj19 -X POST localhost:8919/api/session -H 'Content-Type: application/json' -d "{\"code\":\"$CODE\"}"
           # страница и редактор живы без сессии (одностраничный сценарий)
           curl -sf localhost:8919/editor/ | grep "редактор"
-          curl -sf localhost:8919/ | grep "WEDRA"
+          curl -sf localhost:8919/ | grep "Nomos"
           # без cookie редакторские /api/* закрыты
           curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8919/api/parse/pipeline --data-binary @examples/gate_demo.yaml | grep 401
           ed() { curl -sf -b /tmp/cj19 "$@"; }
@@ -350,7 +350,7 @@ jobs:
           ./wedra gui --listen 127.0.0.1:8920 >/tmp/gui-embed.log 2>&1 &
           GUI_PID=$!
           for i in $(seq 1 20); do curl -sf localhost:8920/api/health >/dev/null && break; sleep 0.5; done
-          curl -sf localhost:8920/ | grep "WEDRA"
+          curl -sf localhost:8920/ | grep "Nomos"
           curl -sf localhost:8920/editor/ | grep "редактор"
           curl -sf localhost:8920/editor/app.js | grep "pluginNetworkHint"
           curl -sf localhost:8920/app.js | grep "api/health"
@@ -369,9 +369,9 @@ jobs:
           /tmp/wedragui-linux --port 8921 >/tmp/wedragui.log 2>&1 &
           WG_PID=$!
           for i in $(seq 1 20); do curl -sf localhost:8921/api/health >/dev/null && break; sleep 0.5; done
-          curl -sf localhost:8921/ | grep "WEDRA"
+          curl -sf localhost:8921/ | grep "Nomos"
           curl -sf localhost:8921/editor/ | grep "редактор"
-          grep -q "WEDRA desktop" /tmp/wedragui.log
+          grep -q "Nomos desktop" /tmp/wedragui.log
           kill -TERM $WG_PID
           sleep 1
           pgrep -x wedragui-linux >/dev/null && exit 1 || true

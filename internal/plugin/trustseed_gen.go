@@ -277,7 +277,7 @@ var builtinTrusted = map[string][]string{
 		"sha256:f696d7222b6541324b01c3fed8879e8cec4959031b1fb50e73edf02ab5ea3fab",
 	},
 	"telegram_send": {
-		"sha256:f16d2ed210e21e75fe5692ecba2fb39fbab26206ce63229e3a84a0d881e99c74",
+		"sha256:f77804f94a9a132b6ce0479c7a6f8fe741ec312666b79ba9126d4c4af05aa173",
 	},
 	"text_analyzer": {
 		"sha256:505eff408b9b74955dafd95af63b7b961442567603f083913718ee389ab361bb",

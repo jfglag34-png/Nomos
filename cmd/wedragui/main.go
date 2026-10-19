@@ -131,13 +131,13 @@ func main() {
 		}
 	}
 
-	logf("WEDRA desktop v%s — GUI: %s", ver, url)
+	logf("Nomos desktop v%s — GUI: %s", ver, url)
 	logf("каталоги: %s (plugins=%s, pipelines=%s, runs=%s)", workingDir(), dirs.Plugins, dirs.Pipelines, dirs.Runs)
 	logf("лог: %s", logPath)
 	// Код — только в консоль и в окно. В лог-файл он не пишется: лог обычно
 	// переживает сессию, а код живёт 10 минут и обменивается на cookie.
 	fmt.Printf("  код входа (одноразовый): %s\n", code)
-	fmt.Println("  Закрыть окно (или Ctrl+C) — остановить WEDRA.")
+	fmt.Println("  Закрыть окно (или Ctrl+C) — остановить Nomos.")
 
 	httpErr := make(chan error, 1)
 	go func() { httpErr <- srv.HTTPServer(ln.Addr().String()).Serve(ln) }()

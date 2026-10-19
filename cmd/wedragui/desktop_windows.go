@@ -24,7 +24,7 @@ func desktop(url string, debug bool, logf func(string, ...interface{})) {
 		Debug:    debug,
 		DataPath: dataPath,
 		WindowOptions: webview2.WindowOptions{
-			Title:  "WEDRA",
+			Title:  "Nomos",
 			Width:  1280,
 			Height: 860,
 			Center: true,

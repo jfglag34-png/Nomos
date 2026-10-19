@@ -10,7 +10,7 @@ point for gated actions.
 
 **Nomos is a fork and descendant of [WEDRA](https://github.com/wykserdex/wedra), originally authored by [wykserdex](https://github.com/wykserdex).** The execution foundation, original plugins, editor, MCP support and many tests come from WEDRA. Original authorship is credited and the upstream MIT copyright notice is preserved in [LICENSE](LICENSE).
 
-Fork development: [jfglag34-png/Nomos](https://github.com/jfglag34-png/Nomos). Nomos adds parallel independent chains, an MCP composer (up to 256 steps), durable scheduling queues, crash-state recovery, webhook idempotency and a persistent Telegram/HTTP outbox.
+Fork development: [ropemaxbroplayer/Nomos](https://github.com/ropemaxbroplayer/Nomos). Nomos adds parallel independent chains, an MCP composer (up to 256 steps), durable scheduling queues, crash-state recovery, webhook idempotency and a persistent Telegram/HTTP outbox.
 
 Use `nomos fleet --config=fleet.yaml` for scheduling and webhook admission. See [Nomos installation and compatibility](docs/nomos.md), [reliability guarantees](docs/fleet-reliability.md) and [MCP composition](docs/mcp-compose.md). The `wedra` CLI, `WEDRA_*` variables, existing data paths and Go module path remain compatible; explicit `NOMOS_*` values take precedence.
 
