@@ -1,0 +1,19 @@
+format_version: "0.2"
+pipeline:
+  name: nomos_telegram_message
+  network: allow
+  gates: human_only
+  secrets: [NOMOS_TELEGRAM_TOKEN]
+  input:
+    text: "Message from a Nomos chain"
+  steps:
+    - id: review
+      plugin: core/human_gate
+      approval: human
+      form:
+        - {field: input.text, editable: true, type: string}
+      actions: [accept, reject]
+      on_reject: stop
+    - id: send
+      plugin: telegram_send
+      timeout: 40s

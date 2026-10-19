@@ -1,0 +1,23 @@
+format_version: "0.2"
+pipeline:
+  name: nomos_postgres_write_reviewed
+  network: allow
+  gates: human_only
+  secrets: [NOMOS_POSTGRES_DSN, NOMOS_POSTGRES_ALLOW_WRITE]
+  input:
+    # Operator creates this table separately; this example intentionally does not run DDL.
+    sql: "INSERT INTO nomos_events (message) VALUES (%s) RETURNING message"
+    params: ["Reviewed event"]
+    max_rows: 100
+    statement_timeout_ms: 10000
+  steps:
+    - id: review
+      plugin: core/human_gate
+      approval: human
+      form:
+        - {field: input.sql, editable: true, type: string}
+      actions: [accept, reject]
+      on_reject: stop
+    - id: write
+      plugin: postgres_write
+      timeout: 30s

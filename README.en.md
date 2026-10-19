@@ -14,6 +14,10 @@ Fork development: [jfglag34-png/Nomos](https://github.com/jfglag34-png/Nomos). N
 
 Use `nomos fleet --config=fleet.yaml` for scheduling and webhook admission. See [Nomos installation and compatibility](docs/nomos.md), [reliability guarantees](docs/fleet-reliability.md) and [MCP composition](docs/mcp-compose.md). The `wedra` CLI, `WEDRA_*` variables, existing data paths and Go module path remain compatible; explicit `NOMOS_*` values take precedence.
 
+## Connectors
+
+PostgreSQL read/write, bounded JSON HTTP APIs and Telegram messages/documents are available as four separately permissioned plugins. See [setup, security and examples](docs/connectors.md). Writes require explicit operator opt-in; secrets stay in environment variables.
+
 ## Current contract
 
 - Product version: `0.34.0` from [`VERSION`](VERSION)

@@ -1,0 +1,51 @@
+id: postgres_read
+version: 0.1.0
+platform_api: ^0.1
+description: 'PostgreSQL: parameterized queries in database-enforced read-only transactions;
+  bounded results and timeout.'
+author: jfglag34-png / Nomos
+runtime:
+  type: python
+  entry: main.py
+  requires:
+  - psycopg==3.2.13
+  - psycopg-binary==3.2.13
+  - typing-extensions==4.15.0
+input:
+  sql:
+    type: string
+    from: input.sql
+  params:
+    type: array
+    from: input.params
+    optional: true
+  named_params:
+    type: object
+    from: input.named_params
+    optional: true
+  max_rows:
+    type: number
+    from: input.max_rows
+    optional: true
+  statement_timeout_ms:
+    type: number
+    from: input.statement_timeout_ms
+    optional: true
+output:
+  columns:
+    type: array
+  rows:
+    type: array
+  row_count:
+    type: number
+  truncated:
+    type: boolean
+  read_only:
+    type: boolean
+permissions:
+  network:
+  - any_host: true
+    port: 5432
+  filesystem: none
+  secrets:
+  - NOMOS_POSTGRES_DSN

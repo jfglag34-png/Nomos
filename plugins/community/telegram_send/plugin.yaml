@@ -1,0 +1,50 @@
+id: telegram_send
+version: 0.1.0
+platform_api: ^0.1
+description: Telegram plain text or inline base64 document (5 MiB), no local file
+  access and no automatic send retries.
+author: jfglag34-png / Nomos
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+input:
+  chat_id:
+    type: string
+    from: input.chat_id
+    optional: true
+  text:
+    type: string
+    from: input.text
+    optional: true
+  document_base64:
+    type: string
+    from: input.document_base64
+    optional: true
+  filename:
+    type: string
+    from: input.filename
+    optional: true
+  caption:
+    type: string
+    from: input.caption
+    optional: true
+  timeout_seconds:
+    type: number
+    from: input.timeout_seconds
+    optional: true
+output:
+  sent:
+    type: boolean
+  message_id:
+    type: number
+  chat_id:
+    type: string
+permissions:
+  network:
+  - any_host: true
+    port: 443
+  filesystem: none
+  secrets:
+  - NOMOS_TELEGRAM_TOKEN
+  - NOMOS_TELEGRAM_CHAT_ID

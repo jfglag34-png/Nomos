@@ -1,0 +1,3 @@
+psycopg==3.2.13
+psycopg-binary==3.2.13
+typing-extensions==4.15.0

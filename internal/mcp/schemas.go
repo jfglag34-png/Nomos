@@ -79,6 +79,7 @@ func toolDefs() []Tool {
 				"name":          str("unique safe artifact name"),
 				"every_minutes": map[string]interface{}{"type": "integer", "minimum": 1, "maximum": 525600},
 				"timeout":       str("whole run timeout, e.g. 20m"),
+				"network":       map[string]interface{}{"type": "string", "enum": []string{"deny", "allow"}, "description": "draft network policy, default deny. Network plugins can be composed but MCP execution policy remains unchanged; operator CLI/fleet activation only."},
 				"input":         map[string]interface{}{"type": "object"},
 				"stages":        map[string]interface{}{"type": "array", "minItems": 1, "maxItems": 256, "items": map[string]interface{}{"type": "object", "required": []string{"steps"}, "properties": map[string]interface{}{"steps": map[string]interface{}{"type": "array", "minItems": 1, "maxItems": 32, "items": map[string]interface{}{"type": "object", "required": []string{"id", "plugin"}, "properties": map[string]interface{}{"id": str("unique step id"), "plugin": str("installed plugin id"), "bind": map[string]interface{}{"type": "object", "additionalProperties": map[string]interface{}{"type": "string"}}}}}}}},
 				"save":          boolSch("save new files without overwriting; default false"),

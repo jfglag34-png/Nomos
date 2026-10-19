@@ -65,3 +65,30 @@ func TestComposeRejectsTraversalAndInterval(t *testing.T) {
 		}
 	}
 }
+
+func TestComposeNetworkDraftDoesNotEnableMCPExecution(t *testing.T) {
+	s := testServer(t)
+	ref := writePolicyPlugin(t, s.pluginsDirs[0], "network_connector", []map[string]interface{}{{"any_host": true, "port": 443}}, nil)
+	args := map[string]interface{}{"name": "network_draft", "every_minutes": float64(5), "network": "allow", "stages": []interface{}{map[string]interface{}{"steps": []interface{}{map[string]interface{}{"id": "request", "plugin": ref}}}}}
+	text, _, e := s.toolCompose(args)
+	if e != nil {
+		t.Fatal(e)
+	}
+	var result map[string]interface{}
+	json.Unmarshal([]byte(text), &result)
+	if result["ok"] != true || result["mcp_network_policy_allowed"] != false || result["activated"] != false {
+		t.Fatal(text)
+	}
+	if _, e := s.loadPipeline(map[string]interface{}{"yaml": result["yaml"]}); e == nil {
+		t.Fatal("network execution policy bypassed")
+	}
+}
+
+func TestComposeNetworkDraftStillChecksFilePaths(t *testing.T) {
+	s := testServer(t)
+	ref := writePolicyPlugin(t, s.pluginsDirs[0], "network_file_connector", []map[string]interface{}{{"any_host": true, "port": 443}}, map[string]interface{}{"file": map[string]interface{}{"type": "string", "format": "file_ref", "from": "input.file"}})
+	args := map[string]interface{}{"name": "network_file_draft", "every_minutes": float64(5), "network": "allow", "input": map[string]interface{}{"file": "/etc/passwd"}, "stages": []interface{}{map[string]interface{}{"steps": []interface{}{map[string]interface{}{"id": "request", "plugin": ref}}}}}
+	if _, _, e := s.toolCompose(args); e == nil {
+		t.Fatal("file path safety bypassed")
+	}
+}

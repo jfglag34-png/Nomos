@@ -1,0 +1,28 @@
+tests:
+- name: invalid JSON
+  input_raw: '{broken'
+  expect:
+    exit_code: 2
+- name: empty query rejected
+  input:
+    sql: ' '
+  expect:
+    status: error
+    exit_code: 1
+    error:
+      code: bad_input
+      retryable: false
+- name: missing DSN
+  env:
+    NOMOS_POSTGRES_DSN: ''
+    NOMOS_POSTGRES_ALLOW_WRITE: ''
+  input:
+    sql: SELECT %s
+    params:
+    - 1
+  expect:
+    status: error
+    exit_code: 1
+    error:
+      code: no_dsn
+      retryable: false

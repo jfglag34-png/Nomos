@@ -10,6 +10,11 @@ import (
 )
 
 func (s *Server) checkPipelineSafety(pf *pipeline.PipelineFile) error {
+	return s.checkPipelineSafetyMode(pf, false)
+}
+
+// Draft-only mode skips network policy, never plugin path or file_ref checks.
+func (s *Server) checkPipelineSafetyMode(pf *pipeline.PipelineFile, draft bool) error {
 	for i := range pf.Pipeline.Steps {
 		st := &pf.Pipeline.Steps[i]
 		if pipeline.IsBuiltin(st.Plugin) {
@@ -22,19 +27,21 @@ func (s *Server) checkPipelineSafety(pf *pipeline.PipelineFile) error {
 			}
 			continue
 		}
-		for _, permission := range m.Permissions.Network {
-			if permission.AnyHost {
-				return fmt.Errorf("E_NETWORK_DENIED: плагин %s заявил any_host в MCP", m.ID)
-			}
-			host := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(permission.Host), "."))
-			if host == "" {
-				return fmt.Errorf("E_NETWORK_DENIED: пустой host в permissions плагина %s", m.ID)
-			}
-			if host == "localhost" || strings.HasSuffix(host, ".localhost") || strings.HasSuffix(host, ".local") {
-				return fmt.Errorf("E_NETWORK_DENIED: host %q запрещён в MCP", permission.Host)
-			}
-			if ip := net.ParseIP(host); ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()) {
-				return fmt.Errorf("E_NETWORK_DENIED: private/loopback host %q запрещён в MCP", permission.Host)
+		if !draft {
+			for _, permission := range m.Permissions.Network {
+				if permission.AnyHost {
+					return fmt.Errorf("E_NETWORK_DENIED: плагин %s заявил any_host в MCP", m.ID)
+				}
+				host := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(permission.Host), "."))
+				if host == "" {
+					return fmt.Errorf("E_NETWORK_DENIED: пустой host в permissions плагина %s", m.ID)
+				}
+				if host == "localhost" || strings.HasSuffix(host, ".localhost") || strings.HasSuffix(host, ".local") {
+					return fmt.Errorf("E_NETWORK_DENIED: host %q запрещён в MCP", permission.Host)
+				}
+				if ip := net.ParseIP(host); ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()) {
+					return fmt.Errorf("E_NETWORK_DENIED: private/loopback host %q запрещён в MCP", permission.Host)
+				}
 			}
 		}
 		for name, port := range m.Input {
@@ -64,6 +71,9 @@ func (s *Server) checkPipelineSafety(pf *pipeline.PipelineFile) error {
 
 // loadPipeline — yaml или path (ровно один), с проверкой песочницы.
 func (s *Server) loadPipeline(args map[string]interface{}) (*pipeline.PipelineFile, error) {
+	return s.loadPipelineMode(args, false)
+}
+func (s *Server) loadPipelineMode(args map[string]interface{}, draft bool) (*pipeline.PipelineFile, error) {
 	yamlStr, _ := args["yaml"].(string)
 	pathStr, _ := args["path"].(string)
 	if yamlStr != "" && pathStr != "" {
@@ -97,7 +107,7 @@ func (s *Server) loadPipeline(args map[string]interface{}) (*pipeline.PipelineFi
 			return nil, err
 		}
 	}
-	if err := s.checkPipelineSafety(pf); err != nil {
+	if err := s.checkPipelineSafetyMode(pf, draft); err != nil {
 		return nil, err
 	}
 	return pf, nil

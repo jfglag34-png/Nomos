@@ -68,16 +68,31 @@ func (s *Server) toolCompose(args map[string]interface{}) (string, bool, *RPCErr
 	if input == nil {
 		input = map[string]interface{}{}
 	}
-	raw, e := yaml.Marshal(map[string]interface{}{"format_version": "0.2", "pipeline": map[string]interface{}{"name": name, "input": input, "steps": steps}})
+	network, _ := args["network"].(string)
+	if network == "" {
+		network = "deny"
+	}
+	if network != "allow" && network != "deny" {
+		return "", false, rpcErr("", "network must be allow or deny")
+	}
+	raw, e := yaml.Marshal(map[string]interface{}{"format_version": "0.2", "pipeline": map[string]interface{}{"name": name, "input": input, "steps": steps, "network": network}})
 	if e != nil {
 		return "", false, rpcErr("", e.Error())
 	}
-	_, issues, e := s.validateArgs(map[string]interface{}{"yaml": string(raw)})
+	pf, e := s.loadPipelineMode(map[string]interface{}{"yaml": string(raw)}, true)
+	var issues []pipeline.Issue
+	if e == nil {
+		issues = pipeline.ValidateIssues(pf, s.multi)
+	}
 	if e != nil {
 		return "", false, rpcErr("", e.Error())
 	}
 	errs, _ := pipeline.SplitIssues(issues)
 	result := map[string]interface{}{"ok": len(errs) == 0, "issues": issuesForJSON(issues), "yaml": string(raw), "step_count": len(steps), "stage_count": len(stages), "activated": false}
+	result["mcp_network_policy_allowed"] = e == nil && s.checkPipelineSafety(pf) == nil
+	if network == "allow" {
+		result["execution_note"] = "Network-enabled draft only. MCP execution policy is unchanged; operator must review and run via CLI/fleet. Secrets, network and mutating operations require explicit operator configuration."
+	}
 	if len(errs) > 0 {
 		return toJSON(result), false, nil
 	}

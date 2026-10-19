@@ -1,0 +1,62 @@
+id: http_request
+version: 0.1.0
+platform_api: ^0.1
+description: 'Operator-configured JSON HTTP API: bounded pagination, pinned public
+  DNS, no redirects; GET retries on 429/5xx. Mutating methods require operator opt-in.'
+author: jfglag34-png / Nomos
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+input:
+  path:
+    type: string
+    from: input.path
+    optional: true
+  method:
+    type: string
+    from: input.method
+    optional: true
+  body:
+    type: object
+    from: input.body
+    optional: true
+  next_path:
+    type: string
+    from: input.next_path
+    optional: true
+  max_pages:
+    type: number
+    from: input.max_pages
+    optional: true
+  timeout_seconds:
+    type: number
+    from: input.timeout_seconds
+    optional: true
+  retries:
+    type: number
+    from: input.retries
+    optional: true
+  idempotency_key:
+    type: string
+    from: input.idempotency_key
+    optional: true
+output:
+  responses:
+    type: array
+  page_count:
+    type: number
+  truncated:
+    type: boolean
+permissions:
+  network:
+  - any_host: true
+    port: 443
+  filesystem: none
+  secrets:
+  - NOMOS_HTTP_BASE_URL
+  - NOMOS_HTTP_BEARER_TOKEN
+  - NOMOS_HTTP_HEADERS_JSON
+  - NOMOS_HTTP_ALLOW_PRIVATE
+  - NOMOS_HTTP_ALLOW_INSECURE
+  - NOMOS_HTTP_ALLOW_WRITE

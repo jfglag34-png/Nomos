@@ -1,0 +1,27 @@
+tests:
+- name: invalid JSON
+  input_raw: '{broken'
+  expect:
+    exit_code: 2
+- name: no operator base URL
+  env:
+    NOMOS_HTTP_BASE_URL: ''
+  input: {}
+  expect:
+    status: error
+    exit_code: 1
+    error:
+      code: no_base_url
+      retryable: false
+- name: write methods require opt-in
+  env:
+    NOMOS_HTTP_BASE_URL: https://example.com/v1
+    NOMOS_HTTP_ALLOW_WRITE: ''
+  input:
+    method: POST
+    body: {}
+  expect:
+    status: error
+    exit_code: 1
+    error:
+      code: write_disabled

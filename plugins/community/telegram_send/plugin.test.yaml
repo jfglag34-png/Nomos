@@ -1,0 +1,16 @@
+tests:
+- name: invalid JSON
+  input_raw: '{broken'
+  expect:
+    exit_code: 2
+- name: token required
+  env:
+    NOMOS_TELEGRAM_TOKEN: ''
+  input:
+    text: hello
+  expect:
+    status: error
+    exit_code: 1
+    error:
+      code: no_token
+      retryable: false

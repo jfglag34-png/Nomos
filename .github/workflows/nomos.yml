@@ -7,6 +7,40 @@ permissions:
   contents: read
 
 jobs:
+  connectors:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: nomos_ci
+          POSTGRES_PASSWORD: nomos_ci_test_only
+          POSTGRES_DB: nomos_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nomos_ci -d nomos_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.9'
+      - name: Install pinned PostgreSQL driver
+        run: python3 -m pip install --disable-pip-version-check -r plugins/community/postgres_read/requirements.lock
+      - name: Real PostgreSQL, bounded HTTP and Telegram contract tests
+        env:
+          NOMOS_TEST_POSTGRES_DSN: postgresql://nomos_ci:nomos_ci_test_only@127.0.0.1:5432/nomos_ci?sslmode=disable
+        run: python3 -m unittest discover -s tests/connectors -v
+      - name: Validate connector manifests and offline plugin contracts
+        run: |
+          for name in postgres_read postgres_write http_request telegram_send; do
+            go run ./cmd/nomos plugin validate "plugins/community/$name"
+            go run ./cmd/nomos plugin test "plugins/community/$name"
+          done
   reliability:
     runs-on: ubuntu-latest
     timeout-minutes: 15

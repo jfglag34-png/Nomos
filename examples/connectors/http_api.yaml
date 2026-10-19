@@ -1,0 +1,15 @@
+format_version: "0.2"
+pipeline:
+  name: nomos_http_read
+  network: allow
+  input:
+    path: "items"
+    method: GET
+    next_path: next
+    max_pages: 5
+    retries: 2
+    timeout_seconds: 15
+  steps:
+    - id: api
+      plugin: http_request
+      timeout: 120s
