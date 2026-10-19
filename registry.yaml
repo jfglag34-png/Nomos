@@ -25,6 +25,31 @@
 version: "0.1"
 
 plugins:
+  # Nomos connectors; upstream pins below are preserved.
+  postgres_read:
+    source: https://github.com/jfglag34-png/Nomos
+    path: plugins/community/postgres_read
+    version: main
+    commit: 9981d79829eb44aaca6e15385df5e8787f341689
+    description: Nomos PostgreSQL read-only queries with parameters and bounds
+  postgres_write:
+    source: https://github.com/jfglag34-png/Nomos
+    path: plugins/community/postgres_write
+    version: main
+    commit: 9981d79829eb44aaca6e15385df5e8787f341689
+    description: Nomos explicitly enabled transactional PostgreSQL DML
+  http_request:
+    source: https://github.com/jfglag34-png/Nomos
+    path: plugins/community/http_request
+    version: main
+    commit: 9981d79829eb44aaca6e15385df5e8787f341689
+    description: Nomos bounded JSON HTTP APIs with safe pagination
+  telegram_send:
+    source: https://github.com/jfglag34-png/Nomos
+    path: plugins/community/telegram_send
+    version: main
+    commit: 9981d79829eb44aaca6e15385df5e8787f341689
+    description: Nomos Telegram text and inline documents
   # official
   syntax_mx_checker:
     source: https://github.com/wykserdex/wedra

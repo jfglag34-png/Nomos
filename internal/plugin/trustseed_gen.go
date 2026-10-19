@@ -144,6 +144,9 @@ var builtinTrusted = map[string][]string{
 	"http_probe": {
 		"sha256:823b6e3957776fbe583fab39ce96265eea5f1b370cc2b20bb4d57c838c92f296",
 	},
+	"http_request": {
+		"sha256:21510e9022fa0c0566462f9201d75623f4681c75fbb866c67810c0b9da67168a",
+	},
 	"iban_validator": {
 		"sha256:e1baaf7ec196416d3eba97e3b83b97a7d9313f8ed7ad1ae8e44a1c23b40fab73",
 	},
@@ -219,6 +222,12 @@ var builtinTrusted = map[string][]string{
 	"port_probe": {
 		"sha256:ca67cfcf95fed5f9bf522385a940e759ae7c6613031be24cc3473818081777e3",
 	},
+	"postgres_read": {
+		"sha256:9e4fa43c8c0e1a1c2317313b765dc186f00b2e2ed0cf19de72420bd2b97d092b",
+	},
+	"postgres_write": {
+		"sha256:77478f95c4b3c5330dcdd41fe7e7848ce9f1e2d0e981053c3f7e4ad84493f592",
+	},
 	"prowler": {
 		"sha256:12be80b0981cc51ce97cec465f030b08c3a3e6701ccab7c3d7f5b21814d6a9c6",
 	},
@@ -266,6 +275,9 @@ var builtinTrusted = map[string][]string{
 	},
 	"syntax_mx_checker": {
 		"sha256:f696d7222b6541324b01c3fed8879e8cec4959031b1fb50e73edf02ab5ea3fab",
+	},
+	"telegram_send": {
+		"sha256:f16d2ed210e21e75fe5692ecba2fb39fbab26206ce63229e3a84a0d881e99c74",
 	},
 	"text_analyzer": {
 		"sha256:505eff408b9b74955dafd95af63b7b961442567603f083913718ee389ab361bb",

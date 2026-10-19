@@ -43,13 +43,12 @@ Building from source needs Go 1.26 or newer. That floor is the `go` directive in
 `go.mod`, and the `go-floor` CI job builds on exactly it, so the documented
 minimum is always the tested one.
 
-There are 100 plugins in the repository and in the registry: 5 `official` and 95
-`community`. Of those, 65 need nothing beyond a bare Python 3, while 35 declare a
+The inherited WEDRA tree has 100 plugins: 5 `official` and 95 `community`. Nomos adds four connectors: 104 manifests, 103 registry entries (the inherited csv_column is not registered). Of the original 100, 65 need nothing beyond a bare Python 3, while 35 declare a
 third-party donor through `runtime.requires`. Nomos installs a donor only through `runtime.requires`, which
 means exactly `pip install package==version` and nothing more: it cannot install
 a Perl CLI, a Go program, or a git clone.
 
-`runtime.requires` is declared for 13 plugins. For 26 more the donor does exist on
+In the original catalogue, `runtime.requires` is declared for 13 plugins; both new PostgreSQL connectors also pin their dependencies. For 26 more the donor does exist on
 PyPI, so one manifest line each is all that stands between them and working out of
 the box — that is declared debt, not a reason to drop them. Only `recon-ng` and
 `spiderfoot` really have to be installed by hand: PyPI has no distribution for
@@ -60,8 +59,8 @@ measured, not asserted: `nomos doctor` recomputes every plugin with the same Pyt
 that runs Nomos itself, and prints how many are ready and what to install. It
 installs nothing and runs nothing.
 
-**About the word "community":** all 100 plugins are currently written
-by the repository owner and live in that same repository — all 100 registry
+**About the word "community":** the original 100 plugins were written
+by the upstream repository owner and live in that same repository — the original registry
 entries carry the same `source`, `https://github.com/wykserdex/wedra`, with no
 outside sources and no third-party authors. "Community" means shipped outside the
 core, that is, everything not in the maintained `plugins/official/` set — not
