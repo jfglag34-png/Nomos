@@ -36,18 +36,18 @@ func syncDirectory(path string) error {
 func (f *fleet) trigger(w http.ResponseWriter, r *http.Request, j fleetJob) {
 	key := r.Header.Get("Idempotency-Key")
 	if len(key) < 1 || len(key) > 128 || strings.TrimSpace(key) != key {
-		http.Error(w, "Idempotency-Key required (1..128 printable ASCII characters, no surrounding whitespace)", 400)
+		http.Error(w, "Idempotency-Key required (1..128 printable ASCII characters, no surrounding whitespace)", http.StatusBadRequest)
 		return
 	}
 	for _, c := range []byte(key) {
 		if c < 33 || c > 126 {
-			http.Error(w, "invalid Idempotency-Key", 400)
+			http.Error(w, "invalid Idempotency-Key", http.StatusBadRequest)
 			return
 		}
 	}
 	if f.store != nil {
 		if f.ctx.Err() != nil {
-			http.Error(w, "shutting down", 503)
+			http.Error(w, "shutting down", http.StatusServiceUnavailable)
 			return
 		}
 		hash := sha256.Sum256([]byte(j.ID + "\x00" + key))
@@ -56,13 +56,13 @@ func (f *fleet) trigger(w http.ResponseWriter, r *http.Request, j fleetJob) {
 		if raw, e := os.ReadFile(legacy); e == nil {
 			var receipt triggerReceipt
 			if json.Unmarshal(raw, &receipt) != nil || receipt.ID == "" || receipt.Job != j.ID {
-				http.Error(w, "legacy claim corrupt", 503)
+				http.Error(w, "legacy claim corrupt", http.StatusServiceUnavailable)
 				return
 			}
 			writeTriggerResponse(w, 200, receipt, true)
 			return
 		} else if !errors.Is(e, os.ErrNotExist) {
-			http.Error(w, "legacy claim store unavailable", 503)
+			http.Error(w, "legacy claim store unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		task, replay, e := f.store.enqueue(j, hex.EncodeToString(hash[:]))
@@ -91,11 +91,11 @@ func (f *fleet) trigger(w http.ResponseWriter, r *http.Request, j fleetJob) {
 	dir := filepath.Join(f.cfg.RunsDir, ".trigger-claims")
 	// The runs directory is operator-controlled, not writable by webhook callers.
 	if e := os.MkdirAll(dir, 0700); e != nil {
-		http.Error(w, "claim store unavailable", 503)
+		http.Error(w, "claim store unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	if e := syncDirectory(f.cfg.RunsDir); e != nil {
-		http.Error(w, "claim store unavailable", 503)
+		http.Error(w, "claim store unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	hash := sha256.Sum256([]byte(j.ID + "\x00" + key))
@@ -104,19 +104,19 @@ func (f *fleet) trigger(w http.ResponseWriter, r *http.Request, j fleetJob) {
 	if e == nil {
 		var receipt triggerReceipt
 		if json.Unmarshal(existing, &receipt) != nil || receipt.ID == "" || receipt.Job != j.ID {
-			http.Error(w, "claim store corrupt; operator inspection required", 503)
+			http.Error(w, "claim store corrupt; operator inspection required", http.StatusServiceUnavailable)
 			return
 		}
 		writeTriggerResponse(w, 200, receipt, true)
 		return
 	}
 	if !errors.Is(e, os.ErrNotExist) {
-		http.Error(w, "claim store unavailable", 503)
+		http.Error(w, "claim store unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	var random [16]byte
 	if _, e = rand.Read(random[:]); e != nil {
-		http.Error(w, "cannot create trigger id", 503)
+		http.Error(w, "cannot create trigger id", http.StatusServiceUnavailable)
 		return
 	}
 	receipt := triggerReceipt{ID: hex.EncodeToString(random[:]), Job: j.ID, ClaimedAt: time.Now().UTC().Format(time.RFC3339Nano)}
@@ -125,7 +125,7 @@ func (f *fleet) trigger(w http.ResponseWriter, r *http.Request, j fleetJob) {
 	// closed, never becoming permission to execute a duplicate after restart.
 	file, e := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if e != nil {
-		http.Error(w, "claim persistence failed", 503)
+		http.Error(w, "claim persistence failed", http.StatusServiceUnavailable)
 		return
 	}
 	_, e = file.Write(raw)
@@ -140,7 +140,7 @@ func (f *fleet) trigger(w http.ResponseWriter, r *http.Request, j fleetJob) {
 		e = syncDirectory(dir)
 	}
 	if e != nil {
-		http.Error(w, "claim persistence uncertain; inspect before retrying with a new key", 503)
+		http.Error(w, "claim persistence uncertain; inspect before retrying with a new key", http.StatusServiceUnavailable)
 		return
 	}
 	if !f.start(j) {
@@ -149,10 +149,10 @@ func (f *fleet) trigger(w http.ResponseWriter, r *http.Request, j fleetJob) {
 			e = syncDirectory(dir)
 		}
 		if e != nil {
-			http.Error(w, "claim cleanup uncertain; operator inspection required", 503)
+			http.Error(w, "claim cleanup uncertain; operator inspection required", http.StatusServiceUnavailable)
 			return
 		}
-		http.Error(w, "job running, shutting down or capacity reached; retry same key", 409)
+		http.Error(w, "job running, shutting down or capacity reached; retry same key", http.StatusConflict)
 		return
 	}
 	writeTriggerResponse(w, 202, receipt, false)

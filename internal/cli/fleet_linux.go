@@ -280,7 +280,7 @@ func (f *fleet) handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := os.Getenv("WEDRA_TRIGGER_TOKEN")
 		if token == "" || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+token)) != 1 {
-			http.Error(w, "unauthorized", 401)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		if r.Method == "GET" && r.URL.Path == "/health" {
@@ -315,7 +315,7 @@ func (f *fleet) handler() http.Handler {
 			return
 		}
 		if r.Method != "POST" {
-			http.Error(w, "POST required", 405)
+			http.Error(w, "POST required", http.StatusMethodNotAllowed)
 			return
 		}
 		id := strings.TrimPrefix(r.URL.Path, "/trigger/")
@@ -434,8 +434,7 @@ loop:
 	shutdown, stop := context.WithTimeout(context.Background(), 5*time.Second)
 	defer stop()
 	server.Shutdown(shutdown)
-	f.mu.Lock()
-	f.mu.Unlock()
+	// Main dispatch loop has stopped; HTTP only enqueues durable tasks.
 	f.wg.Wait()
 	f.notify("stopped", "fleet", "scheduler stopped")
 	deliveryWG.Wait()
