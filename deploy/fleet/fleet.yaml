@@ -1,0 +1,40 @@
+concurrency: 6
+listen: 127.0.0.1:8770
+runs_dir: /var/lib/wedra/fleet-runs
+jobs:
+  - id: parser-1
+    file: /var/lib/wedra/pipelines/parser-1.yaml
+    cron: "*/5 * * * *"
+    timezone: Europe/Moscow
+    timeout: 20m
+    auto_approve: false
+  - id: parser-2
+    file: /var/lib/wedra/pipelines/parser-2.yaml
+    cron: "*/5 * * * *"
+    timezone: Europe/Moscow
+    timeout: 20m
+    auto_approve: false
+  - id: parser-3
+    file: /var/lib/wedra/pipelines/parser-3.yaml
+    cron: "*/5 * * * *"
+    timezone: Europe/Moscow
+    timeout: 20m
+    auto_approve: false
+  - id: parser-4
+    file: /var/lib/wedra/pipelines/parser-4.yaml
+    cron: "*/5 * * * *"
+    timezone: Europe/Moscow
+    timeout: 20m
+    auto_approve: false
+  - id: parser-5
+    file: /var/lib/wedra/pipelines/parser-5.yaml
+    cron: "*/5 * * * *"
+    timezone: Europe/Moscow
+    timeout: 20m
+    auto_approve: false
+  - id: parser-6
+    file: /var/lib/wedra/pipelines/parser-6.yaml
+    cron: "*/5 * * * *"
+    timezone: Europe/Moscow
+    timeout: 20m
+    auto_approve: false

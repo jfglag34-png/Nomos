@@ -1,0 +1,27 @@
+[Unit]
+Description=WEDRA parallel fleet scheduler
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=wedra
+Group=wedra
+WorkingDirectory=/var/lib/wedra
+EnvironmentFile=/etc/wedra/fleet.env
+ExecStart=/usr/local/bin/wedra fleet --config=/etc/wedra/fleet.yaml
+Restart=always
+RestartSec=5
+TimeoutStopSec=45
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/wedra
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

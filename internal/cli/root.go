@@ -19,6 +19,8 @@ func Run() {
 		return
 	}
 	switch cmd {
+	case "fleet":
+		RunFleet(os.Args[2:])
 	case "pipeline":
 		if helpRequested(os.Args[2:]) {
 			printHelp()
@@ -123,6 +125,7 @@ func printHelp() {
 
 Команды (мясо, не косметика):
   wedra pipeline run <file.yaml> [--yes] [--resume=<run_id>] [--runs-dir=var/runs] [--store=fs|json] [--no-auto-approve] [--deny-untrusted-plugins] [--allow-untrusted-plugins]
+  wedra fleet --config=fleet.yaml [--check]              # parallel Ubuntu scheduler + webhook triggers
   wedra schedule [--pipelines=<dir>] [--runs-dir=<dir>]      # показать next_run для всех cron
   wedra daemon [--pipelines=<dir>] [--runs-dir=<dir>]        # демон: тикает каждую минуту, запускает due пайплайны (solo vs scheduled)
   wedra pipeline install <name|file.yaml|url> [--registry=<url|path>]  # пресет + автоустановка плагинов
