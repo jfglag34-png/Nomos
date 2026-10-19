@@ -47,6 +47,7 @@ type fleetConfig struct {
 	Jobs        []fleetJob `yaml:"jobs"`
 }
 type fleet struct {
+	idemMu sync.Mutex
 	cfg    fleetConfig
 	mu     sync.Mutex
 	active map[string]bool
@@ -268,11 +269,7 @@ func (f *fleet) handler() http.Handler {
 		}
 		for _, j := range f.cfg.Jobs {
 			if j.ID == id {
-				if !f.start(j) {
-					http.Error(w, "job running, shutting down or capacity reached", 409)
-					return
-				}
-				w.WriteHeader(202)
+				f.trigger(w, r, j)
 				return
 			}
 		}
