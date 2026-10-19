@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wykserdex/wedra/internal/changelog"
 	"github.com/wykserdex/wedra/internal/errdoc"
 	"github.com/wykserdex/wedra/internal/schemacheck"
 	"github.com/wykserdex/wedra/internal/supply"
@@ -88,6 +89,13 @@ func checkSteps() []checkStep {
 		{name: "versions", desc: "VERSION ↔ README и минимум Go ↔ go.mod", fast: true,
 			run: func(o checkOpts) (string, error) {
 				return verdoc.CheckRepo(o.repo)
+			}},
+		// Структура ченджлога. Единственное место в репозитории, где ошибка
+		// не ломает сборку, но молча выбрасывает написанное: потерянный
+		// заголовок раздела выглядит ровно так же, как «никто ничего не менял».
+		{name: "changelog", desc: "структура CHANGELOG.md: разделы версий и подразделы", fast: true,
+			run: func(o checkOpts) (string, error) {
+				return changelog.CheckRepo(o.repo)
 			}},
 		{name: "errcodes", desc: "коды ошибок в Go ↔ protocol/v0.2/ERRORS.md", fast: true,
 			run: func(o checkOpts) (string, error) {
