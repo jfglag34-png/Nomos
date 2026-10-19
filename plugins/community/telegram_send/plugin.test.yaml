@@ -14,3 +14,16 @@ tests:
     error:
       code: no_token
       retryable: false
+- name: mutually exclusive message and document
+  env:
+    NOMOS_TELEGRAM_TOKEN: 123:offline_fixture
+    NOMOS_TELEGRAM_CHAT_ID: '42'
+  input:
+    text: x
+    document_base64: eA==
+  expect:
+    status: error
+    exit_code: 1
+    error:
+      code: bad_input
+      retryable: false
