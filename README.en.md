@@ -6,6 +6,11 @@ WEDRA is a local, deterministic pipeline runner with a human approval gate.
 Agents can propose and inspect a plan, while a person remains the decision
 point for gated actions.
 
+The project is alive. 0.35.0 is in progress: plugin store and editor, import of
+an external project, automatic installation of declared dependencies, working
+schedule alerts, a ceiling on waiting for a gate, and run retention. See the
+[CHANGELOG](CHANGELOG.md) for what changed.
+
 ## Current contract
 
 - Product version: `0.34.0` from [`VERSION`](VERSION)
