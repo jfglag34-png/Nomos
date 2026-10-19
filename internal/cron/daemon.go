@@ -1,14 +1,18 @@
 package cron
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/wykserdex/wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/registry"
 )
 
 // ScheduleState — куда сохраняем next_run/last_run для GUI и для catchUp.
@@ -217,11 +221,16 @@ func (d *Daemon) Tick(ctx context.Context) error {
 			_ = runID
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "schedule %s: %v\n", f, err)
-				if sched.Alerts.Webhook != "" || sched.Alerts.OnFailure != "" {
-					_ = fireAlert(sched, "on_failure", f, err.Error())
+				// Ошибка оповещения печатается, а не отбрасывается. Раньше
+				// стояло `_ = fireAlert(...)`, из-за чего молчание о
+				// неработающем оповещении было неотличимо от «оповещения нет».
+				if aerr := fireAlert(sched, "on_failure", f, err.Error()); aerr != nil {
+					fmt.Fprintf(os.Stderr, "schedule %s: %v\n", f, aerr)
 				}
 			} else if sched.HumanGate == "wait" {
-				_ = fireAlert(sched, "on_waiting", f, "human gate waiting")
+				if aerr := fireAlert(sched, "on_waiting", f, "human gate waiting"); aerr != nil {
+					fmt.Fprintf(os.Stderr, "schedule %s: %v\n", f, aerr)
+				}
 			}
 		}
 		_ = os.Remove(runningLock)
@@ -230,16 +239,140 @@ func (d *Daemon) Tick(ctx context.Context) error {
 		}
 		t := now
 		saveState(stPath, &ScheduleState{Pipeline: f, Cron: sched.Cron, NextRun: NextRunFor(sched, now.Add(time.Minute)), LastRun: &t, Enabled: true, Overlap: sched.Overlap})
-		_ = sched.Alerts
 	}
 	return nil
 }
 
+// alertPayload — тело POST в webhook.
+//
+// Плоское и без внутренних структур по двум причинам: получатель на той стороне
+// не обязан знать про WEDRA, и лишняя вложенность в теле оповещения ничем не
+// окупается. Время в UTC и RFC3339 — иначе разбирать придётся в догадках о
+// часовом поясе отправителя.
+type alertPayload struct {
+	Event    string `json:"event"`
+	Pipeline string `json:"pipeline"`
+	Detail   string `json:"detail"`
+	At       string `json:"at"`
+}
+
+// alertTimeout — потолок на одну попытку доставки.
+//
+// Ограничение обязательное: демон тикает раз в минуту, и висящий POST занял бы
+// соединение на всё это время вместе с блокировкой ран и `.running.lock`.
+const alertTimeout = 10 * time.Second
+
+// alertClient — HTTP-клиент для вебхуков. Заменяется в тестах.
+var alertClient = &http.Client{Timeout: alertTimeout}
+
+// alertKindFor — вид события, на который подписан получатель: alertKind это
+// уже «on_waiting» или «on_failure», то есть имя поля схемы.
+func alertKindFor(sched *pipeline.Schedule, alertKind string) string {
+	if sched == nil {
+		return ""
+	}
+	if alertKind == "on_waiting" {
+		return sched.Alerts.OnWaiting
+	}
+	if alertKind == "on_failure" {
+		return sched.Alerts.OnFailure
+	}
+	return ""
+}
+
+// fireAlert — доставляет оповещение о событии расписания.
+//
+// Раньше здесь было два `return nil` при живых схеме, CLI и чейнджлоге: человек
+// прописывал `alerts: webhook:` и получал тишину, причём демон даже не пытался
+// ничего отправить. Теперь отправляет.
+//
+// Порядок и смысл:
+//
+//   - пустая подписка — тишина, это не ошибка: on_waiting без on_waiting не
+//     должен ничего слать;
+//   - подписка именем плагина проверяется на существование. Плагина
+//     telegram_notifier в репозитории нет, и раньше это молча игнорировалось.
+//     Теперь отсутствие плагина — внятная ошибка, а не «всё хорошо»;
+//   - webhook — единственный канал, который реально доставляется: POST с
+//     JSON-телом.
+//
+// Ошибка возвращается, а не глотается: вызывающий печатает её в stderr, потому
+// что молчаливая потеря оповещения — это ровно тот дефект, который здесь и был.
 func fireAlert(sched *pipeline.Schedule, kind, pipelineFile, detail string) error {
-	if sched.Alerts.Webhook == "" {
+	if sched == nil {
 		return nil
 	}
+	// Вебхук — единственный реально работающий канал. Если он задан, оповещение
+	// уходит, и подписка плагином сюда не при чём.
+	if sched.Alerts.Webhook != "" {
+		return postAlert(sched.Alerts.Webhook, kind, pipelineFile, detail)
+	}
+	// Канала нет. Если событие вообще подписано — это молчащая поломка, и её
+	// надо назвать: человек прописал on_waiting и ждал алерта.
+	wanted := alertKindFor(sched, kind)
+	if wanted == "" {
+		return nil
+	}
+	found, err := pluginExists(wanted)
+	if err != nil {
+		return fmt.Errorf("алерт %s: подписка на %q, проверить не удалось (%v); "+
+			"канал доставки не задан — alerts.webhook пуст", kind, wanted, err)
+	}
+	if !found {
+		return fmt.Errorf("алерт %s: плагин-нотификатор %q не найден в реестре; "+
+			"канал доставки не задан — alerts.webhook пуст, оповещение уйти не может", kind, wanted)
+	}
+	return fmt.Errorf("алерт %s: плагин-нотификатор %q есть, но канал доставки не задан — "+
+		"задайте alerts.webhook: вызов нотификатора из демона не подключён", kind, wanted)
+}
+
+// postAlert — доставка в webhook.
+func postAlert(webhook, kind, pipelineFile, detail string) error {
+	if !strings.HasPrefix(webhook, "http://") && !strings.HasPrefix(webhook, "https://") {
+		return fmt.Errorf("алерт %s: webhook %q не http(s)-адрес", kind, webhook)
+	}
+	body, err := json.Marshal(alertPayload{
+		Event:    kind,
+		Pipeline: pipelineFile,
+		Detail:   detail,
+		At:       time.Now().UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		return fmt.Errorf("алерт %s: тело запроса: %w", kind, err)
+	}
+	req, err := http.NewRequest(http.MethodPost, webhook, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("алерт %s: %w", kind, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := alertClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("алерт %s: доставка в %s: %w", kind, webhook, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("алерт %s: %s ответил %s", kind, webhook, resp.Status)
+	}
 	return nil
+}
+
+// pluginExists — есть ли плагин с таким id в реестре.
+//
+// Резолвится через сам пакет registry, а не поиском по тексту файла: путь к
+// реестру выбирается в одном месте (DefaultSource), и вторая реализация этого
+// выбора разъехалась бы с первой при первом же переезде.
+//
+// Три исхода различаются намеренно: есть / нет / не удалось проверить. Средний
+// случай — это «нет ответа», и выдавать его за «плагина нет» нельзя: тогда
+// сетевой сбой реестра выглядел бы как ошибка конфигурации пайплайна.
+func pluginExists(id string) (found bool, err error) {
+	h, err := registry.Load(registry.DefaultSource())
+	if err != nil {
+		return false, fmt.Errorf("реестр недоступен: %w", err)
+	}
+	defer h.Close()
+	_, found = h.GetPlugin(id)
+	return found, nil
 }
 
 func (d *Daemon) Run(ctx context.Context) error {
