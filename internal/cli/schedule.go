@@ -9,6 +9,7 @@ import (
 	"github.com/wykserdex/wedra/internal/core"
 	"github.com/wykserdex/wedra/internal/cron"
 	"github.com/wykserdex/wedra/internal/execution"
+	"github.com/wykserdex/wedra/internal/gate"
 	"github.com/wykserdex/wedra/internal/guidirs"
 	"github.com/wykserdex/wedra/internal/journal"
 	"github.com/wykserdex/wedra/internal/pipeline"
@@ -89,6 +90,20 @@ func RunDaemon(args []string) {
 				Yes:     yes,
 				RunsDir: dirs.Runs,
 				Trusted: trusted,
+			}
+			// Гейт с потолком ожидания. Без этого демон на сервере уходит в
+			// WaitDecision навсегда: решение ждёт человек, а если не придёт —
+			// ран висит молча, и это не «человек не пришёл», а «прогона не
+			// случилось», что одно и то же снаружи.
+			//
+			// Канал вместо stdin обязателен: у демона нет терминала, и чтение
+			// os.Stdin в фоне либо сразу даёт EOF, либо блокируется навсегда в
+			// зависимости от того, как запустили.
+			if sched := pf.Pipeline.Schedule; sched != nil && sched.GateTimeout.Duration > 0 {
+				timeout, onTimeout := sched.GateTimeout.Duration, sched.OnTimeout
+				opts.GateUI = func(*pipeline.Step) gate.GateUI {
+					return gate.NewTimeoutUI(gate.NewChannelUI(), timeout, onTimeout)
+				}
 			}
 			// run — execution.Run хочет *PipelineFile + Engine
 			eng := core.NewEngine()

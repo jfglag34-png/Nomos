@@ -120,6 +120,17 @@ type Schedule struct {
 	CatchUp   bool           `yaml:"catch_up,omitempty"`
 	HumanGate string         `yaml:"human_gate,omitempty"`
 	Alerts    ScheduleAlerts `yaml:"alerts,omitempty"`
+	// GateTimeout — сколько ждать решения человека, прежде чем время выйдет.
+	//
+	// Ноль или отсутствие поля = ждать как раньше, бесконечно. Это осознанно:
+	// в терминале человек перед тобой, и потолок только мешает. А вот демон на
+	// сервере без потолка даёт молчаливый висящий ран, и узнать о нём можно
+	// только по тому, что прогона не случилось.
+	GateTimeout Duration `yaml:"gate_timeout,omitempty"`
+	// OnTimeout — что делать по истечении GateTimeout: "abort" (сорвать) или
+	// "auto_approve" (ответить за человека). По умолчанию abort: автоодобрение
+	// опасно и включается только явным словом.
+	OnTimeout string `yaml:"on_timeout,omitempty"`
 }
 
 type ScheduleAlerts struct {
