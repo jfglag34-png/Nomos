@@ -75,6 +75,7 @@
 | E_SCHEDULE_TIMEZONE | `pipeline.schedule.timezone` неизвестен | `fix.candidates: [Europe/Minsk,UTC]` |
 | E_SCHEDULE_OVERLAP | `pipeline.schedule.overlap` не skip/queue/allow | `fix.candidates: [skip,queue,allow]` |
 | E_SCHEDULE_HUMAN_GATE | `pipeline.schedule.human_gate` не autoApprove/wait | `fix.candidates: [autoApprove,wait]` |
+| E_SCHEDULE_ALERTS | `pipeline.schedule.alerts` — webhook не http(s) или без host; on_waiting/on_failure с пробелами; on_timeout не abort/auto_approve; gate_timeout отрицателен | `fix.candidates: [https://example.com/hook]` |
 | E_PLUGIN_LOAD | плагин не загрузился: битый `plugin.yaml` **любого** поля или несовместимый `platform_api` | проверьте путь и plugin.yaml |
 
 ## Предупреждения (pre-run, не блокируют)

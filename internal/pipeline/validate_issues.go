@@ -2,11 +2,13 @@ package pipeline
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+	_ "time/tzdata"
 )
 
 // collector — аккумулятор Issue с хелперами err/warn.
@@ -126,7 +128,26 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 			v.err(E_SCHEDULE_OVERLAP, "", "", "pipeline.schedule.overlap", "допускаются: skip, queue, allow", &Fix{Op: "set", Target: "pipeline.schedule.overlap", Candidates: []string{"skip", "queue", "allow"}}, "schedule: overlap=%q, ожидается skip|queue|allow", p.Schedule.Overlap)
 		}
 		if p.Schedule.HumanGate != "" && p.Schedule.HumanGate != "autoApprove" && p.Schedule.HumanGate != "wait" && p.Schedule.HumanGate != "auto_approve" {
-			v.err(E_SCHEDULE_HUMAN_GATE, "", "", "pipeline.schedule.human_gate", "допускаются: autoApprove, wait", &Fix{Op: "set", Target: "pipeline.schedule.human_gate", Candidates: []string{"autoApprove", "wait"}}, "schedule: human_gate=%q, ожидается autoApprove|wait", p.Schedule.HumanGate)
+			v.err(E_SCHEDULE_HUMAN_GATE, "", "", "pipeline.schedule.human_gate", "допускаются: autoApprove, wait", &Fix{Op: "set", Target: "pipeline.schedule.human_gate", Candidates: []string{"autoApprove", "wait"}}, "schedule: human_gate=%q, ожидалось autoApprove|wait", p.Schedule.HumanGate)
+		}
+		// Алерты. Раньше блок alerts вообще не валидировался: строка
+		// `on_waiting: плагина_нет_в_природе` и `webhook: "не урл вообще"`
+		// проходили гейт зелёными. Дальше демон на такой конфиг либо молчал,
+		// либо пытался отправить мусор в сеть — и оба исхода выглядели как
+		// «алерты настроены, просто не сработало».
+		if err := validateAlerts(p.Schedule.Alerts); err != nil {
+			v.err(E_SCHEDULE_ALERTS, "", "", "pipeline.schedule.alerts", err.hint,
+				&Fix{Op: "set", Target: "pipeline.schedule.alerts.webhook", Candidates: []string{"https://example.com/hook"}},
+				"schedule.alerts: %v", err.msg)
+		}
+		// gate_timeout и on_timeout проверяются здесь же, а не в gate: пайплайн
+		// может быть валиден сам по себе и всё равно не запускаться по расписанию.
+		if gt := p.Schedule.GateTimeout.Duration; gt != 0 && gt < 0 {
+			v.err(E_SCHEDULE_ALERTS, "", "", "pipeline.schedule.gate_timeout", "положительный интервал, напр. 30m", nil,
+				"schedule: gate_timeout=%v отрицателен", gt)
+		}
+		if ot := p.Schedule.OnTimeout; ot != "" && ot != "abort" && ot != "auto_approve" {
+			v.err(E_SCHEDULE_ALERTS, "", "", "pipeline.schedule.on_timeout", "допускаются: abort, auto_approve", &Fix{Op: "set", Target: "pipeline.schedule.on_timeout", Candidates: []string{"abort", "auto_approve"}}, "schedule: on_timeout=%q, ожидается abort|auto_approve", ot)
 		}
 	}
 	if p.Foreach != "" {
@@ -677,19 +698,93 @@ func isValidCron(cron string) bool {
 	return true
 }
 
+// alertError — ошибка блока alerts с отдельной подсказкой для автофикса.
+type alertError struct {
+	msg  string
+	hint string
+}
+
+func (e *alertError) Error() string { return e.msg }
+
+// validateAlerts — проверка блока alerts. Раньше он не валидировался вовсе.
+//
+// Про вебхук. `webhook: "не урл вообще"` проходил гейт зелёным, а демон потом
+// пытался отправить в это мусор. Проверка строгая: http или https и адрес должен
+// разбираться. Схема file:// и ftp:// запрещены осознанно — доставить туда
+// нечем.
+//
+// Про on_waiting/on_failure. Существование нотификатора здесь НЕ проверяется, и
+// это решение, а не пропуск: валидатор не имеет доступа к реестру, и community-
+// плагины он тоже не проверяет на существование — для шага проверяются только
+// встроенные core/*. Ввести здесь реестр означало бы, что пайплайн нельзя
+// валидировать до установки его плагинов, а это ломает обычный сценарий
+// написания. Молчание этой дыры закрыто в другом месте: fireAlert при отсутствии
+// канала доставки или ненайденном плагине возвращает внятную ошибку, а не
+// делает вид, что оповещение ушло.
+func validateAlerts(a ScheduleAlerts) *alertError {
+	if a.Webhook != "" {
+		if !strings.HasPrefix(a.Webhook, "http://") && !strings.HasPrefix(a.Webhook, "https://") {
+			return &alertError{
+				msg:  fmt.Sprintf("webhook %q не http(s)-адрес", a.Webhook),
+				hint: "укажите http:// или https://",
+			}
+		}
+		u, err := url.Parse(a.Webhook)
+		if err != nil {
+			return &alertError{
+				msg:  fmt.Sprintf("webhook %q не разбирается как адрес: %v", a.Webhook, err),
+				hint: "укажите корректный http(s)-адрес",
+			}
+		}
+		if u.Host == "" {
+			return &alertError{
+				msg:  fmt.Sprintf("webhook %q без узла (host)", a.Webhook),
+				hint: "укажите адрес целиком, напр. https://example.com/hook",
+			}
+		}
+	}
+	// Имя нотификатора: ловим только форму, не существование. Пробел и пустая
+	// строка после обрезки — это опечатка, а не плагин.
+	for field, val := range map[string]string{"on_waiting": a.OnWaiting, "on_failure": a.OnFailure} {
+		trimmed := strings.TrimSpace(val)
+		if trimmed == "" {
+			if val != "" {
+				return &alertError{
+					msg:  fmt.Sprintf("%s: значение из одних пробелов", field),
+					hint: "укажите имя плагина-нотификатора или уберите поле",
+				}
+			}
+			continue
+		}
+		if strings.ContainsAny(trimmed, " \t") {
+			return &alertError{
+				msg:  fmt.Sprintf("%s: %q содержит пробелы", field, trimmed),
+				hint: "имя плагина пишется без пробелов, напр. telegram_notifier",
+			}
+		}
+	}
+	return nil
+}
+
 func validateTimezone(tz string) error {
-	if tz == "Local" || tz == "UTC" || tz == "local" {
+	if tz == "Local" || tz == "local" || tz == "UTC" || tz == "utc" {
 		return nil
 	}
-	// IANA: содержит "/" или известное сокращение
-	if strings.Contains(tz, "/") {
-		return nil
+	// Раньше здесь стояло `if strings.Contains(tz, "/") { return nil }`, и
+	// проверка пропускала ровно те значения, ради которых написана: любая
+	// IANA-зона содержит слеш, поэтому `Плутон/Город` проходил наравне с
+	// `Europe/Minsk`, а `Europe/Minskx` — тоже. До time.LoadLocation управление
+	// доходило только для строк без слеша, то есть почти никогда.
+	//
+	// Обход был не ленью, а обходом отсутствия базы зон: time/tzdata не
+	// импортировался, и LoadLocation срабатывал только если рядом есть GOROOT с
+	// zoneinfo.zip. Проект же поставляется отдельным бинарником без Go, и там
+	// любой настоящий зон откатывался бы как неизвестный. Теперь база встроена в
+	// бинарь (+0.39 МБ), и проверка стала настоящей.
+	if _, err := time.LoadLocation(tz); err != nil {
+		return fmt.Errorf("неизвестная таймзона")
 	}
-	// разрешаем Europe/Minsk, Asia/Tokyo и т.п.
-	if _, err := time.LoadLocation(tz); err == nil {
-		return nil
-	}
-	return fmt.Errorf("неизвестная таймзона")
+	return nil
 }
 
 // кривой путь) — E_PORT_SOURCE: для агента это один класс «перепривяжи».
