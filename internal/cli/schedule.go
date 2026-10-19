@@ -3,7 +3,11 @@ package cli
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/wykserdex/wedra/internal/core"
@@ -71,6 +75,41 @@ func RunDaemon(args []string) {
 	}
 	dirs.Ensure()
 	fmt.Printf("daemon: pipelines=%s runs=%s (Ctrl+C to stop)\n", dirs.Pipelines, dirs.Runs)
+
+	// Раздача ссылок одобрения. Ключ подписи живёт рядом с ранами, чтобы
+	// ссылка пережила перезапуск демона: человек получил её, демон рестартнул,
+	// и она должна остаться рабочей.
+	//
+	// Адрес для ссылки и адрес слушателя — разные вещи: слушатель может быть
+	// на 127.0.0.1 (за обратным прокси), а в ссылке может стоять публичный
+	// адрес, иначе человек её не откроет.
+	approveListen := strings.TrimSpace(os.Getenv("WEDRA_APPROVE_LISTEN"))
+	if approveListen == "" {
+		approveListen = "127.0.0.1:8766"
+	}
+	approveURL := strings.TrimSpace(os.Getenv("WEDRA_APPROVE_URL"))
+	if approveURL == "" {
+		approveURL = "http://" + approveListen
+	}
+	signer, err := gate.LoadSigner(filepath.Join(dirs.Runs, "approve.key"))
+	if err != nil {
+		fmt.Println("daemon: ключ подписи ссылок одобрения:", err)
+		os.Exit(2)
+	}
+	approver := gate.NewApprover(signer, approveURL, time.Hour)
+	ln, lerr := net.Listen("tcp", approveListen)
+	if lerr != nil {
+		fmt.Println("daemon: слушатель ссылок одобрения:", lerr)
+		os.Exit(2)
+	}
+	go func() {
+		if err := http.Serve(ln, approver.Handler()); err != nil {
+			fmt.Fprintln(os.Stderr, "daemon: раздача ссылок:", err)
+		}
+	}()
+	fmt.Printf("daemon: ссылки одобрения %s (слушатель %s, ключ %s)\n",
+		approveURL, approveListen, filepath.Join(dirs.Runs, "approve.key"))
+
 	daemon := &cron.Daemon{
 		PipelinesDir: dirs.Pipelines,
 		RunsDir:      dirs.Runs,
@@ -86,28 +125,49 @@ func RunDaemon(args []string) {
 			trusted, _ := plugin.LoadTrustConfig(trustConfigPath(""))
 			_ = pf
 			_ = journal.DefaultRunsDir
+			// RunID задаётся ДО запуска: фабрика гейта вызывается внутри
+			// прогона, и без заранее известного id ссылка не знала бы, к какому
+			// рану относится.
+			runID, err := execution.NewRunID(pf.Pipeline.Name)
+			if err != nil {
+				return "", err
+			}
 			opts := execution.RunOptions{
 				Yes:     yes,
 				RunsDir: dirs.Runs,
 				Trusted: trusted,
+				RunID:   runID,
 			}
-			// Гейт с потолком ожидания. Без этого демон на сервере уходит в
-			// WaitDecision навсегда: решение ждёт человек, а если не придёт —
-			// ран висит молча, и это не «человек не пришёл», а «прогона не
-			// случилось», что одно и то же снаружи.
+			// Гейт ждёт решения человека, а на сервере человека за терминалом
+			// нет. Поэтому гейт получает КАНАЛ, а решение приходит по
+			// подписанной ссылке: демон печатает её, человек открывает её где
+			// угодно — с телефона, из мессенджера, с другой машины.
 			//
 			// Канал вместо stdin обязателен: у демона нет терминала, и чтение
 			// os.Stdin в фоне либо сразу даёт EOF, либо блокируется навсегда в
 			// зависимости от того, как запустили.
-			if sched := pf.Pipeline.Schedule; sched != nil && sched.GateTimeout.Duration > 0 {
-				timeout, onTimeout := sched.GateTimeout.Duration, sched.OnTimeout
-				opts.GateUI = func(*pipeline.Step) gate.GateUI {
-					return gate.NewTimeoutUI(gate.NewChannelUI(), timeout, onTimeout)
+			sched := pf.Pipeline.Schedule
+			timeout, onTimeout := time.Duration(0), ""
+			if sched != nil {
+				timeout, onTimeout = sched.GateTimeout.Duration, sched.OnTimeout
+			}
+			opts.GateUI = func(st *pipeline.Step) gate.GateUI {
+				ui := gate.NewChannelUI()
+				link, rerr := approver.Register(runID, st.ID, ui, st)
+				if rerr != nil {
+					fmt.Fprintf(os.Stderr, "daemon: ссылка одобрения не выдана: %v\n", rerr)
+				} else {
+					fmt.Fprintf(os.Stderr, "daemon: гейт %s ждёт решения — откройте %s\n", st.ID, link)
 				}
+				if timeout > 0 {
+					return gate.NewTimeoutUI(ui, timeout, onTimeout)
+				}
+				return ui
 			}
 			// run — execution.Run хочет *PipelineFile + Engine
 			eng := core.NewEngine()
 			_, err = execution.Run(pf, eng, opts)
+			approver.Unregister(runID, "")
 			if err != nil {
 				return "", err
 			}

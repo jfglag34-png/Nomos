@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -62,6 +63,24 @@ func saveState(p string, s *ScheduleState) {
 func lockPath(runsDir string) string { return filepath.Join(runsDir, ".daemon.lock") }
 func tryLock(runsDir string) (func(), bool) {
 	lp := lockPath(runsDir)
+	if f, err := os.OpenFile(lp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644); err == nil {
+		fmt.Fprintf(f, "%d %s\n", os.Getpid(), time.Now().Format(time.RFC3339))
+		f.Close()
+		return func() { os.Remove(lp) }, true
+	} else if !os.IsExist(err) {
+		return nil, false
+	}
+	// Блокировка занята. Но занята она может быть ПОТОМУ, что демон умер:
+	// снятие блокировки идёт через defer, а убитый процесс (SIGTERM, паника,
+	// OOM-киллер) defer не выполняет. Тогда блокировка протухает, и демон
+	// больше не стартует НИКОГДА — а выглядит это как «планировщик молча
+	// не работает», то есть хуже от явной ошибки.
+	//
+	// Поэтому: если владелец записанной блокировки мёртв — забираем её.
+	if !staleLock(lp) {
+		return nil, false
+	}
+	_ = os.Remove(lp)
 	f, err := os.OpenFile(lp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
 		return nil, false
@@ -69,6 +88,29 @@ func tryLock(runsDir string) (func(), bool) {
 	fmt.Fprintf(f, "%d %s\n", os.Getpid(), time.Now().Format(time.RFC3339))
 	f.Close()
 	return func() { os.Remove(lp) }, true
+}
+
+// staleLock — протухшая ли блокировка: её владелец мёртв.
+//
+// Нечитаемая блокировка считается протухшей: такую пишет только сбой, и
+// оставить её значит заблокировать демон навсегда.
+func staleLock(lp string) bool {
+	raw, err := os.ReadFile(lp)
+	if err != nil {
+		return false
+	}
+	fields := strings.Fields(string(raw))
+	if len(fields) == 0 {
+		return true
+	}
+	pid, err := strconv.Atoi(fields[0])
+	if err != nil {
+		return true
+	}
+	if pid == os.Getpid() {
+		return false
+	}
+	return !processAlive(pid)
 }
 
 // NextRunFor — считает next_run с учетом timezone
@@ -188,6 +230,15 @@ func (d *Daemon) Tick(ctx context.Context) error {
 		isRunning := false
 		if _, err := os.Stat(runningLock); err == nil {
 			isRunning = true
+			// Протухшая блокировка — владелец мёртв: демон убили (SIGTERM,
+			// паника, OOM), и снять файл не успел. Без этой проверки пайплайн
+			// молча перестаёт запускаться НАВСЕГДА: демон жив, тикает, видит
+			// занятую блокировку и по overlap: skip уходит дальше. Выглядит
+			// это как «планировщик работает», а на деле этот пайплайн мёртв.
+			if staleLock(runningLock) {
+				_ = os.Remove(runningLock)
+				isRunning = false
+			}
 		}
 		if isRunning {
 			switch overlap {
@@ -215,7 +266,9 @@ func (d *Daemon) Tick(ctx context.Context) error {
 			continue
 		}
 		autoApprove := sched.HumanGate == "autoApprove" || sched.HumanGate == "auto_approve"
-		_ = os.WriteFile(runningLock, []byte(now.Format(time.RFC3339)), 0o644)
+		// В блокировку пишется pid: по нему протухание и определяется, и
+		// формат совпадает с блокировкой демона.
+		_ = os.WriteFile(runningLock, []byte(fmt.Sprintf("%d %s\n", os.Getpid(), now.Format(time.RFC3339))), 0o644)
 		if d.Runner != nil {
 			runID, err := d.Runner(f, autoApprove)
 			_ = runID
